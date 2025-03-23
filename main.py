@@ -1,9 +1,27 @@
 import os
+import subprocess
 import requests
 import base64
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import unpad
 from colorama import Fore, Style, init
+
+# Fonction pour vérifier et installer les dépendances
+def install_dependencies():
+    """
+    Vérifie et installe les dépendances nécessaires.
+    """
+    dependencies = ["colorama", "requests", "cryptography", "tqdm", "httpx"]
+    for package in dependencies:
+        try:
+            __import__(package)
+            print(f"{package} est déjà installé.")
+        except ImportError:
+            print(f"{package} n'est pas installé. Installation en cours...")
+            subprocess.check_call(["pip", "install", package])
+
+# Installer les dépendances au démarrage
+install_dependencies()
 
 # Initialisation de colorama
 init()
@@ -13,7 +31,7 @@ ENCRYPTED_SCRIPT_URL = "https://raw.githubusercontent.com/DjahNoDead/IPToP/main/
 VERSION_URL = "https://raw.githubusercontent.com/DjahNoDead/IPToP/main/version.txt"
 ENCRYPTED_SCRIPT_PATH = "dom1.py.enc"
 VERSION_PATH = "version.txt"
-DECRYPTION_KEY = "3WDLBJSPHkxCBs/athEeI5lVPmON2t+vOVS0FZhUXc8="  # Clé de déchiffrement
+DECRYPTION_KEY = "votre_clé_de_chiffrement_en_base64"  # À remplacer par votre clé
 
 # Fonction pour vérifier les mises à jour
 def check_for_updates():
@@ -52,7 +70,7 @@ def check_for_updates():
         print(f"{Fore.RED}[-] Erreur HTTP : {e}{Style.RESET_ALL}")
         print(f"{Fore.YELLOW}[!] Vérifiez que l'URL est correcte et que les fichiers existent sur GitHub.{Style.RESET_ALL}")
     except Exception as e:
-        print(f"{Fore.RED}[-] Erreur lors de la vérification des mises à jour : {e}{Style.RESET_ALL}")
+        print(f"{Fore.RED}[-] Erreur lors de la vérification des mises à jour : {e}{Style.RESET_ALL}}")
 
 # Fonction pour déchiffrer et exécuter le script
 def run_encrypted_script():
@@ -68,18 +86,14 @@ def run_encrypted_script():
         cipher = AES.new(key, AES.MODE_CBC, iv)
         decrypted_data = unpad(cipher.decrypt(ciphertext), AES.block_size)
 
-        # Afficher le script déchiffré (pour débogage)
-        print(f"{Fore.BLUE}[+] Script déchiffré :{Style.RESET_ALL}")
-        print(decrypted_data.decode())
-
         # Exécuter le script déchiffré
         exec(decrypted_data.decode())
     except Exception as e:
-        print(f"{Fore.RED}[-] Erreur lors du déchiffrement ou de l'exécution du script : {e}{Style.RESET_ALL}")
+        print(f"{Fore.RED}[-] Erreur lors du déchiffrement ou de l'exécution du script : {e}{Style.RESET_ALL}}")
 
 # Fonction principale
 def main():
-    print(f"{Fore.CYAN}\n===== Mode interactif ====={Style.RESET_ALL}")
+    print(f"{Fore.CYAN}\n===== Mode interactif ====={Style.RESET_ALL}}")
     while True:
         print("1. Exécuter le script")
         print("2. Vérifier les mises à jour")
@@ -88,16 +102,16 @@ def main():
 
         if choice == "1":
             if not os.path.exists(ENCRYPTED_SCRIPT_PATH):
-                print(f"{Fore.YELLOW}[!] Script chiffré introuvable. Téléchargement en cours...{Style.RESET_ALL}")
+                print(f"{Fore.YELLOW}[!] Script chiffré introuvable. Téléchargement en cours...{Style.RESET_ALL}}")
                 check_for_updates()
             run_encrypted_script()
         elif choice == "2":
             check_for_updates()
         elif choice == "3":
-            print(f"{Fore.CYAN}[*] Au revoir !{Style.RESET_ALL}")
+            print(f"{Fore.CYAN}[*] Au revoir !{Style.RESET_ALL}}")
             break
         else:
-            print(f"{Fore.RED}[-] Option invalide. Veuillez réessayer.{Style.RESET_ALL}")
+            print(f"{Fore.RED}[-] Option invalide. Veuillez réessayer.{Style.RESET_ALL}}")
 
 if __name__ == "__main__":
     main()
