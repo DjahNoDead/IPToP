@@ -1,0 +1,2 @@
+2025-04-25 14:34:11,840 - ERROR - Erreur lors du déchiffrement : bad marshal data (unknown type code)
+2025-04-25 14:34:15,924 - INFO - Script terminé par l'utilisateur.
