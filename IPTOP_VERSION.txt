@@ -1,6 +1,0 @@
-# IPTOP CHANGELOG
-
-## vJS - 2025-05-19
-- Ajout du système de mise à jour automatique
-- Lecture de la version via commentaire masqué
-- Option --force-update / --offline / --changelog
