@@ -1,2 +1,2 @@
-__version__ = "1.0.3"
-__expire__ = "30 Mai 2025"
+__version__ = "Nano"
+__expire__ = "30 Juin 2025"
