@@ -17,9 +17,14 @@ def generate_uuid():
     return str(uuid.uuid4())
 
 def generate_reality_keys():
+    # Génère une clé privée
     priv_key = run_command("xray x25519")
-    pub_key = run_command(f"echo '{priv_key}' | awk '/Private key:/ {{print $3}}' | xray x25519 -i")
-    return priv_key.split(": ")[1].strip(), pub_key.strip()
+    # Extrait la clé privée pure (sans le texte)
+    priv_key_clean = priv_key.split("Private key: ")[1].strip()
+    # Génère la clé publique correspondante
+    pub_key = run_command(f"xray x25519 -i {priv_key_clean}")
+    pub_key_clean = pub_key.split("Public key: ")[1].strip()
+    return priv_key_clean, pub_key_clean
 
 def install_xray():
     print("🔄 Mise à jour du système...")
