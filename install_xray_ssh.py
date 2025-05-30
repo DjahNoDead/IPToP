@@ -2,29 +2,16 @@ import os
 import subprocess
 import uuid
 import json
-import secrets
-import sys
 
-def run_command(command, check=True):
+def run_command(command):
     try:
-        result = subprocess.run(command, shell=True, check=check, capture_output=True, text=True)
-        return result.stdout.strip()
+        subprocess.run(command, shell=True, check=True)
     except subprocess.CalledProcessError as e:
-        print(f"❌ Erreur: {e.stderr.strip()}")
-        sys.exit(1)
+        print(f"❌ Erreur: {e}")
+        exit(1)
 
 def generate_uuid():
     return str(uuid.uuid4())
-
-def generate_reality_keys():
-    # Génère une clé privée
-    priv_key = run_command("xray x25519")
-    # Extrait la clé privée pure (sans le texte)
-    priv_key_clean = priv_key.split("Private key: ")[1].strip()
-    # Génère la clé publique correspondante
-    pub_key = run_command(f"xray x25519 -i {priv_key_clean}")
-    pub_key_clean = pub_key.split("Public key: ")[1].strip()
-    return priv_key_clean, pub_key_clean
 
 def install_xray():
     print("🔄 Mise à jour du système...")
@@ -33,63 +20,54 @@ def install_xray():
     print("📦 Installation des dépendances...")
     run_command("sudo apt install -y curl wget unzip nginx certbot python3-certbot-nginx")
 
-    print("⬇️ Téléchargement et installation de Xray...")
+    print("⬇️ Installation de Xray...")
     run_command("bash -c \"$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)\" @ install")
 
-def configure_xray(domain, priv_key, pub_key):
+def configure_xray(domain):
+    # Génération des identifiants
     vless_uuid = generate_uuid()
     vmess_uuid = generate_uuid()
     trojan_password = generate_uuid()
     shadowsocks_password = generate_uuid()
 
-    print("\n🔑 Identifiants générés :")
-    print(f"  - VLESS (Reality) UUID: {vless_uuid}")
-    print(f"  - VMess UUID: {vmess_uuid}")
-    print(f"  - Trojan Password: {trojan_password}")
-    print(f"  - Shadowsocks Password: {shadowsocks_password}")
-    print(f"  - Reality Private Key: {priv_key}")
-    print(f"  - Reality Public Key: {pub_key}\n")
+    print(f"🔑 UUID VLESS: {vless_uuid}")
+    print(f"🔑 UUID VMess: {vmess_uuid}")
+    print(f"🔑 Mot de passe Trojan: {trojan_password}")
+    print(f"🔑 Mot de passe Shadowsocks: {shadowsocks_password}")
 
+    # Configuration Xray (sans Reality)
     xray_config = {
         "inbounds": [
-            # Reality (XTLS)
+            # VLESS + TLS (Port 443)
             {
                 "port": 443,
                 "protocol": "vless",
                 "settings": {
-                    "clients": [{"id": vless_uuid, "flow": "xtls-rprx-vision"}],
-                    "decryption": "none",
-                    "fallbacks": [
-                        {"dest": 80},
-                        {"path": "/grpc", "dest": 50051, "xver": 1}
-                    ]
+                    "clients": [{"id": vless_uuid}],
+                    "decryption": "none"
                 },
                 "streamSettings": {
                     "network": "tcp",
-                    "security": "reality",
-                    "realitySettings": {
-                        "show": False,
-                        "dest": f"{domain}:443",
-                        "xver": 1,
-                        "serverNames": [domain],
-                        "privateKey": priv_key,
-                        "shortIds": ["88", "1234abcd"]
+                    "security": "tls",
+                    "tlsSettings": {
+                        "certificates": [
+                            {
+                                "certificateFile": f"/etc/letsencrypt/live/{domain}/fullchain.pem",
+                                "keyFile": f"/etc/letsencrypt/live/{domain}/privkey.pem"
+                            }
+                        ]
                     }
                 }
             },
-            # VMess + WebSocket
+            # VMess (Port 8443)
             {
                 "port": 8443,
                 "protocol": "vmess",
                 "settings": {
                     "clients": [{"id": vmess_uuid}]
-                },
-                "streamSettings": {
-                    "network": "ws",
-                    "wsSettings": {"path": "/vmess"}
                 }
             },
-            # Trojan + TLS
+            # Trojan (Port 8444)
             {
                 "port": 8444,
                 "protocol": "trojan",
@@ -108,7 +86,7 @@ def configure_xray(domain, priv_key, pub_key):
                     }
                 }
             },
-            # Shadowsocks
+            # Shadowsocks (Port 8445)
             {
                 "port": 8445,
                 "protocol": "shadowsocks",
@@ -116,19 +94,6 @@ def configure_xray(domain, priv_key, pub_key):
                     "method": "chacha20-ietf-poly1305",
                     "password": shadowsocks_password,
                     "network": "tcp,udp"
-                }
-            },
-            # gRPC
-            {
-                "port": 50051,
-                "protocol": "vless",
-                "settings": {
-                    "clients": [{"id": generate_uuid()}],
-                    "decryption": "none"
-                },
-                "streamSettings": {
-                    "network": "grpc",
-                    "grpcSettings": {"serviceName": "grpc"}
                 }
             }
         ],
@@ -141,6 +106,10 @@ def configure_xray(domain, priv_key, pub_key):
     print("✅ Configuration Xray appliquée.")
 
 def setup_nginx_and_ssl(domain):
+    # Création des dossiers si inexistants
+    os.makedirs("/etc/nginx/sites-available", exist_ok=True)
+    os.makedirs("/etc/nginx/sites-enabled", exist_ok=True)
+    
     print("🌐 Configuration de Nginx...")
     nginx_conf = f"""
     server {{
@@ -157,9 +126,6 @@ def setup_nginx_and_ssl(domain):
     run_command(f"sudo ln -sf /etc/nginx/sites-available/{domain} /etc/nginx/sites-enabled/")
     run_command("sudo systemctl restart nginx")
 
-    print("🔐 Obtention du certificat SSL...")
-    run_command(f"sudo certbot --nginx -d {domain} --non-interactive --agree-tos --email admin@{domain}")
-
 def restart_services():
     print("🔄 Redémarrage des services...")
     run_command("sudo systemctl restart xray")
@@ -167,36 +133,27 @@ def restart_services():
     run_command("sudo systemctl enable xray")
 
 def main():
-    if not os.getenv("SSH_CONNECTION"):
-        print("⚠️ Ce script doit être exécuté en SSH sur le VPS.")
-        sys.exit(1)
-
     domain = input("🌍 Entrez votre nom de domaine (ex: vpn.mondomaine.com): ").strip()
-    priv_key, pub_key = generate_reality_keys()
-
+    
     install_xray()
-    configure_xray(domain, priv_key, pub_key)
+    configure_xray(domain)
     setup_nginx_and_ssl(domain)
     restart_services()
 
     print("\n🎉 Installation terminée !")
     print("🔗 Partagez ces identifiants avec vos utilisateurs :")
     print(f"""
-    🔹 Reality (VLESS + XTLS):
+    🔹 VLESS (TLS):
       - Address: {domain}
       - Port: 443
       - UUID: {generate_uuid()}
-      - Public Key: {pub_key}
-      - Short ID: 88
-      - Flow: xtls-rprx-vision
 
-    🔹 VMess (WebSocket):
+    🔹 VMess:
       - Address: {domain}
       - Port: 8443
       - UUID: {generate_uuid()}
-      - Path: /vmess
 
-    🔹 Trojan (TLS):
+    🔹 Trojan:
       - Address: {domain}
       - Port: 8444
       - Password: {generate_uuid()}
