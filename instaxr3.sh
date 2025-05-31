@@ -26,38 +26,86 @@ NC='\033[0m'
 # Ports configurables
 #!/bin/bash
 
-# Configuration des ports (tableau associatif)
+#!/bin/bash
+
+# Configuration des couleurs
+CYAN='\033[0;36m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+# Configuration des ports
 declare -A PORTS=(
     [VLESS_WS]=10000
-    [VLESS_TCP]=10001 
+    [VLESS_TCP]=10001
     [VLESS_GRPC]=10002
     [VLESS_H2]=10003
-    [VMESS_WS]=10004
-    [VMESS_TCP]=10005
-    [TROJAN_WS]=10006
-    [TROJAN_TCP]=10007
-    [SHADOWSOCKS]=10008
-    [REALITY]=10009
-    [REALITY_UDP]=10010
+    [VLESS_H2_UPGRADE]=10004
+    [VMESS_WS]=10005
+    [VMESS_TCP]=10006
+    [TROJAN_WS]=10007
+    [TROJAN_TCP]=10008
+    [SHADOWSOCKS]=10009
+    [REALITY]=10010
+    [REALITY_UDP]=10011
 )
 
-# Initialisation des listes utilisateurs (tableaux indexés)
-declare -a VLESS_WS_USERS=()
-declare -a VLESS_TCP_USERS=()
-declare -a VLESS_GRPC_USERS=()
-declare -a VLESS_H2_USERS=()
-declare -a VMESS_WS_USERS=()
-declare -a VMESS_TCP_USERS=()
-declare -a TROJAN_WS_USERS=()
-declare -a TROJAN_TCP_USERS=()
-declare -a SHADOWSOCKS_USERS=()
-declare -a REALITY_USERS=()
-declare -a REALITY_UDP_USERS=()
+# Initialisation des utilisateurs
+declare -A USERS=(
+    [VLESS_WS]=""
+    [VLESS_TCP]=""
+    [VLESS_GRPC]=""
+    [VLESS_H2]=""
+    [VLESS_H2_UPGRADE]=""
+    [VMESS_WS]=""
+    [VMESS_TCP]=""
+    [TROJAN_WS]=""
+    [TROJAN_TCP]=""
+    [SHADOWSOCKS]=""
+    [REALITY]=""
+    [REALITY_UDP]=""
+)
 
 # Paramètres Reality
 REALITY_PRIVATE_KEY=""
 REALITY_PUBLIC_KEY=""
 declare -a REALITY_SHORT_IDS=()
+
+# Fonctions utilitaires
+header() {
+    clear
+    echo -e "${CYAN}=== Gestionnaire de configuration Xray ===${NC}\n"
+}
+
+status() {
+    echo -e "\n${YELLOW}$1${NC}"
+}
+
+error() {
+    echo -e "\n${RED}Erreur: $1${NC}" >&2
+}
+
+pause() {
+    read -rp "Appuyez sur Entrée pour continuer..."
+}
+
+generate_uuid() {
+    uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid
+}
+
+random_password() {
+    tr -dc 'A-Za-z0-9' </dev/urandom | head -c 16
+}
+
+save_config() {
+    {
+        declare -p PORTS
+        declare -p USERS
+        declare -p REALITY_PRIVATE_KEY
+        declare -p REALITY_PUBLIC_KEY
+        declare -p REALITY_SHORT_IDS
+    } > xray_config.sh && return 0 || return 1
+}
 
 # ============================================
 # FONCTIONS D'AFFICHAGE
@@ -645,221 +693,252 @@ EOF
 # FONCTIONS DE GESTION DES UTILISATEURS
 # ============================================
 
+# Fonction pour ajouter un utilisateur
 add_user() {
-  header
-  echo -e " ${CYAN}Ajouter un utilisateur${NC}\n"
-  echo -e " ${BLUE}1.${NC} VLESS WS (Recommandé)"
-  echo -e " ${BLUE}2.${NC} VLESS TCP"
-  echo -e " ${BLUE}3.${NC} VLESS gRPC"
-  echo -e " ${BLUE}4.${NC} VLESS HTTP/2"
-  echo -e " ${BLUE}5.${NC} VLESS HTTP Upgrade"
-  echo -e " ${BLUE}6.${NC} VMess WS"
-  echo -e " ${BLUE}7.${NC} VMess TCP"
-  echo -e " ${BLUE}8.${NC} Trojan WS"
-  echo -e " ${BLUE}9.${NC} Trojan TCP"
-  echo -e " ${BLUE}10.${NC} Shadowsocks"
-  echo -e " ${BLUE}11.${NC} Reality TCP"
-  echo -e " ${BLUE}12.${NC} Reality UDP"
-  echo -e " ${BLUE}0.${NC} Retour\n"
-  
-  read -rp " Choisissez le type d'utilisateur : " choice
-  
-  case $choice in
-    1)
-      id=$(generate_uuid) || return
-      USERS["VLESS_WS"]+=("$id")
-      status "Nouvel utilisateur VLESS WS :"
-      echo -e " ${YELLOW}UUID: ${CYAN}$id${NC}"
-      echo -e " ${YELLOW}Port: ${CYAN}443${NC}"
-      echo -e " ${YELLOW}Path: ${CYAN}/vlessws${NC}"
-      echo -e " ${YELLOW}Flow: ${CYAN}xtls-rprx-vision${NC}"
-      ;;
-    2)
-      id=$(generate_uuid) || return
-      USERS["VLESS_TCP"]+=("$id")
-      status "Nouvel utilisateur VLESS TCP :"
-      echo -e " ${YELLOW}UUID: ${CYAN}$id${NC}"
-      echo -e " ${YELLOW}Port: ${CYAN}${PORTS[VLESS_TCP]}${NC}"
-      echo -e " ${YELLOW}Flow: ${CYAN}xtls-rprx-vision${NC}"
-      ;;
-    3)
-      id=$(generate_uuid) || return
-      USERS["VLESS_GRPC"]+=("$id")
-      status "Nouvel utilisateur VLESS gRPC :"
-      echo -e " ${YELLOW}UUID: ${CYAN}$id${NC}"
-      echo -e " ${YELLOW}Port: ${CYAN}${PORTS[VLESS_GRPC]}${NC}"
-      echo -e " ${YELLOW}ServiceName: ${CYAN}vlessgrpc${NC}"
-      ;;
-    4)
-      id=$(generate_uuid) || return
-      USERS["VLESS_H2"]+=("$id")
-      status "Nouvel utilisateur VLESS HTTP/2 :"
-      echo -e " ${YELLOW}UUID: ${CYAN}$id${NC}"
-      echo -e " ${YELLOW}Port: ${CYAN}${PORTS[VLESS_H2]}${NC}"
-      echo -e " ${YELLOW}Path: ${CYAN}/vlessh2${NC}"
-      ;;
-    5)
-      id=$(generate_uuid) || return
-      USERS["VLESS_H2_UPGRADE"]+=("$id")
-      status "Nouvel utilisateur VLESS HTTP Upgrade :"
-      echo -e " ${YELLOW}UUID: ${CYAN}$id${NC}"
-      echo -e " ${YELLOW}Port: ${CYAN}${PORTS[VLESS_H2_UPGRADE]}${NC}"
-      echo -e " ${YELLOW}Path: ${CYAN}/httpupgrade${NC}"
-      ;;
-    6)
-      id=$(generate_uuid) || return
-      USERS["VMESS_WS"]+=("$id")
-      status "Nouvel utilisateur VMess WS :"
-      echo -e " ${YELLOW}UUID: ${CYAN}$id${NC}"
-      echo -e " ${YELLOW}Port: ${CYAN}${PORTS[VMESS_WS]}${NC}"
-      echo -e " ${YELLOW}Path: ${CYAN}/vmessws${NC}"
-      ;;
-    7)
-      id=$(generate_uuid) || return
-      USERS["VMESS_TCP"]+=("$id")
-      status "Nouvel utilisateur VMess TCP :"
-      echo -e " ${YELLOW}UUID: ${CYAN}$id${NC}"
-      echo -e " ${YELLOW}Port: ${CYAN}${PORTS[VMESS_TCP]}${NC}"
-      ;;
-    8)
-      pwd=$(random_password) || return
-      USERS["TROJAN_WS"]+=("$pwd")
-      status "Nouvel utilisateur Trojan WS :"
-      echo -e " ${YELLOW}Mot de passe: ${CYAN}$pwd${NC}"
-      echo -e " ${YELLOW}Port: ${CYAN}${PORTS[TROJAN_WS]}${NC}"
-      echo -e " ${YELLOW}Path: ${CYAN}/trojanws${NC}"
-      ;;
-    9)
-      pwd=$(random_password) || return
-      USERS["TROJAN_TCP"]+=("$pwd")
-      status "Nouvel utilisateur Trojan TCP :"
-      echo -e " ${YELLOW}Mot de passe: ${CYAN}$pwd${NC}"
-      echo -e " ${YELLOW}Port: ${CYAN}${PORTS[TROJAN_TCP]}${NC}"
-      echo -e " ${YELLOW}Flow: ${CYAN}xtls-rprx-direct${NC}"
-      ;;
-    10)
-      pwd=$(random_password) || return
-      USERS["SHADOWSOCKS"]+=("$pwd")
-      status "Nouvel utilisateur Shadowsocks :"
-      echo -e " ${YELLOW}Mot de passe: ${CYAN}$pwd${NC}"
-      echo -e " ${YELLOW}Port: ${CYAN}${PORTS[SHADOWSOCKS]}${NC}"
-      echo -e " ${YELLOW}Méthode: ${CYAN}aes-128-gcm${NC}"
-      ;;
-    11)
-      id=$(generate_uuid) || return
-      USERS["REALITY"]+=("$id")
-      status "Nouvel utilisateur Reality TCP :"
-      echo -e " ${YELLOW}UUID: ${CYAN}$id${NC}"
-      echo -e " ${YELLOW}Port: ${CYAN}${PORTS[REALITY]}${NC}"
-      echo -e " ${YELLOW}Public Key: ${CYAN}$REALITY_PUBLIC_KEY${NC}"
-      echo -e " ${YELLOW}Short ID: ${CYAN}${REALITY_SHORT_IDS[0]}${NC}"
-      echo -e " ${YELLOW}Fingerprint: ${CYAN}chrome${NC}"
-      ;;
-    12)
-      id=$(generate_uuid) || return
-      USERS["REALITY_UDP"]+=("$id")
-      status "Nouvel utilisateur Reality UDP :"
-      echo -e " ${YELLOW}UUID: ${CYAN}$id${NC}"
-      echo -e " ${YELLOW}Port: ${CYAN}${PORTS[REALITY_UDP]}${NC}"
-      echo -e " ${YELLOW}Public Key: ${CYAN}$REALITY_PUBLIC_KEY${NC}"
-      echo -e " ${YELLOW}Short ID: ${CYAN}${REALITY_SHORT_IDS[0]}${NC}"
-      ;;
-    0) return ;;
-    *) 
-      error "Option invalide"
-      pause
-      return 1
-      ;;
-  esac
-  
-  save_config || error "Erreur lors de la sauvegarde"
-  pause
+    header
+    echo -e " ${CYAN}Ajouter un utilisateur${NC}\n"
+    echo -e " ${BLUE}1.${NC} VLESS WS (Recommandé)"
+    echo -e " ${BLUE}2.${NC} VLESS TCP"
+    echo -e " ${BLUE}3.${NC} VLESS gRPC"
+    echo -e " ${BLUE}4.${NC} VLESS HTTP/2"
+    echo -e " ${BLUE}5.${NC} VLESS HTTP Upgrade"
+    echo -e " ${BLUE}6.${NC} VMess WS"
+    echo -e " ${BLUE}7.${NC} VMess TCP"
+    echo -e " ${BLUE}8.${NC} Trojan WS"
+    echo -e " ${BLUE}9.${NC} Trojan TCP"
+    echo -e " ${BLUE}10.${NC} Shadowsocks"
+    echo -e " ${BLUE}11.${NC} Reality TCP"
+    echo -e " ${BLUE}12.${NC} Reality UDP"
+    echo -e " ${BLUE}0.${NC} Retour\n"
+    
+    read -rp " Choisissez le type d'utilisateur : " choice
+    
+    case $choice in
+        1)
+            id=$(generate_uuid) || return
+            USERS[VLESS_WS]="${USERS[VLESS_WS]} $id"
+            status "Nouvel utilisateur VLESS WS :"
+            echo -e " ${YELLOW}UUID: ${CYAN}$id${NC}"
+            echo -e " ${YELLOW}Port: ${CYAN}${PORTS[VLESS_WS]}${NC}"
+            echo -e " ${YELLOW}Path: ${CYAN}/vlessws${NC}"
+            echo -e " ${YELLOW}Flow: ${CYAN}xtls-rprx-vision${NC}"
+            ;;
+        2)
+            id=$(generate_uuid) || return
+            USERS[VLESS_TCP]="${USERS[VLESS_TCP]} $id"
+            status "Nouvel utilisateur VLESS TCP :"
+            echo -e " ${YELLOW}UUID: ${CYAN}$id${NC}"
+            echo -e " ${YELLOW}Port: ${CYAN}${PORTS[VLESS_TCP]}${NC}"
+            echo -e " ${YELLOW}Flow: ${CYAN}xtls-rprx-vision${NC}"
+            ;;
+        3)
+            id=$(generate_uuid) || return
+            USERS[VLESS_GRPC]="${USERS[VLESS_GRPC]} $id"
+            status "Nouvel utilisateur VLESS gRPC :"
+            echo -e " ${YELLOW}UUID: ${CYAN}$id${NC}"
+            echo -e " ${YELLOW}Port: ${CYAN}${PORTS[VLESS_GRPC]}${NC}"
+            echo -e " ${YELLOW}ServiceName: ${CYAN}vlessgrpc${NC}"
+            ;;
+        4)
+            id=$(generate_uuid) || return
+            USERS[VLESS_H2]="${USERS[VLESS_H2]} $id"
+            status "Nouvel utilisateur VLESS HTTP/2 :"
+            echo -e " ${YELLOW}UUID: ${CYAN}$id${NC}"
+            echo -e " ${YELLOW}Port: ${CYAN}${PORTS[VLESS_H2]}${NC}"
+            echo -e " ${YELLOW}Path: ${CYAN}/vlessh2${NC}"
+            ;;
+        5)
+            id=$(generate_uuid) || return
+            USERS[VLESS_H2_UPGRADE]="${USERS[VLESS_H2_UPGRADE]} $id"
+            status "Nouvel utilisateur VLESS HTTP Upgrade :"
+            echo -e " ${YELLOW}UUID: ${CYAN}$id${NC}"
+            echo -e " ${YELLOW}Port: ${CYAN}${PORTS[VLESS_H2_UPGRADE]}${NC}"
+            echo -e " ${YELLOW}Path: ${CYAN}/httpupgrade${NC}"
+            ;;
+        6)
+            id=$(generate_uuid) || return
+            USERS[VMESS_WS]="${USERS[VMESS_WS]} $id"
+            status "Nouvel utilisateur VMess WS :"
+            echo -e " ${YELLOW}UUID: ${CYAN}$id${NC}"
+            echo -e " ${YELLOW}Port: ${CYAN}${PORTS[VMESS_WS]}${NC}"
+            echo -e " ${YELLOW}Path: ${CYAN}/vmessws${NC}"
+            ;;
+        7)
+            id=$(generate_uuid) || return
+            USERS[VMESS_TCP]="${USERS[VMESS_TCP]} $id"
+            status "Nouvel utilisateur VMess TCP :"
+            echo -e " ${YELLOW}UUID: ${CYAN}$id${NC}"
+            echo -e " ${YELLOW}Port: ${CYAN}${PORTS[VMESS_TCP]}${NC}"
+            ;;
+        8)
+            pwd=$(random_password) || return
+            USERS[TROJAN_WS]="${USERS[TROJAN_WS]} $pwd"
+            status "Nouvel utilisateur Trojan WS :"
+            echo -e " ${YELLOW}Mot de passe: ${CYAN}$pwd${NC}"
+            echo -e " ${YELLOW}Port: ${CYAN}${PORTS[TROJAN_WS]}${NC}"
+            echo -e " ${YELLOW}Path: ${CYAN}/trojanws${NC}"
+            ;;
+        9)
+            pwd=$(random_password) || return
+            USERS[TROJAN_TCP]="${USERS[TROJAN_TCP]} $pwd"
+            status "Nouvel utilisateur Trojan TCP :"
+            echo -e " ${YELLOW}Mot de passe: ${CYAN}$pwd${NC}"
+            echo -e " ${YELLOW}Port: ${CYAN}${PORTS[TROJAN_TCP]}${NC}"
+            echo -e " ${YELLOW}Flow: ${CYAN}xtls-rprx-direct${NC}"
+            ;;
+        10)
+            pwd=$(random_password) || return
+            USERS[SHADOWSOCKS]="${USERS[SHADOWSOCKS]} $pwd"
+            status "Nouvel utilisateur Shadowsocks :"
+            echo -e " ${YELLOW}Mot de passe: ${CYAN}$pwd${NC}"
+            echo -e " ${YELLOW}Port: ${CYAN}${PORTS[SHADOWSOCKS]}${NC}"
+            echo -e " ${YELLOW}Méthode: ${CYAN}aes-128-gcm${NC}"
+            ;;
+        11)
+            id=$(generate_uuid) || return
+            USERS[REALITY]="${USERS[REALITY]} $id"
+            status "Nouvel utilisateur Reality TCP :"
+            echo -e " ${YELLOW}UUID: ${CYAN}$id${NC}"
+            echo -e " ${YELLOW}Port: ${CYAN}${PORTS[REALITY]}${NC}"
+            echo -e " ${YELLOW}Public Key: ${CYAN}$REALITY_PUBLIC_KEY${NC}"
+            echo -e " ${YELLOW}Short ID: ${CYAN}${REALITY_SHORT_IDS[0]}${NC}"
+            echo -e " ${YELLOW}Fingerprint: ${CYAN}chrome${NC}"
+            ;;
+        12)
+            id=$(generate_uuid) || return
+            USERS[REALITY_UDP]="${USERS[REALITY_UDP]} $id"
+            status "Nouvel utilisateur Reality UDP :"
+            echo -e " ${YELLOW}UUID: ${CYAN}$id${NC}"
+            echo -e " ${YELLOW}Port: ${CYAN}${PORTS[REALITY_UDP]}${NC}"
+            echo -e " ${YELLOW}Public Key: ${CYAN}$REALITY_PUBLIC_KEY${NC}"
+            echo -e " ${YELLOW}Short ID: ${CYAN}${REALITY_SHORT_IDS[0]}${NC}"
+            ;;
+        0) return ;;
+        *) 
+            error "Option invalide"
+            pause
+            return 1
+            ;;
+    esac
+    
+    save_config || error "Erreur lors de la sauvegarde"
+    pause
+}
+
+# Fonction pour supprimer un utilisateur
+remove_user_type() {
+    local protocol_name=$1
+    local protocol_key=$2
+    
+    header
+    echo -e " ${CYAN}Supprimer un utilisateur $protocol_name${NC}\n"
+    
+    # Convertir la chaîne en tableau
+    IFS=' ' read -ra users <<< "${USERS[$protocol_key]}"
+    
+    if [ ${#users[@]} -eq 0 ]; then
+        error "Aucun utilisateur à supprimer"
+        pause
+        return
+    fi
+    
+    echo -e " ${YELLOW}Utilisateurs disponibles:${NC}"
+    for i in "${!users[@]}"; do
+        echo -e " ${BLUE}$((i+1)).${NC} ${users[i]}"
+    done
+    
+    read -rp " Choisissez l'utilisateur à supprimer (1-${#users[@]}) : " choice
+    
+    if [[ ! "$choice" =~ ^[0-9]+$ ]] || [ "$choice" -lt 1 ] || [ "$choice" -gt ${#users[@]} ]; then
+        error "Choix invalide"
+        pause
+        return
+    fi
+    
+    # Supprimer l'utilisateur
+    new_users=()
+    for i in "${!users[@]}"; do
+        if [ $((i+1)) -ne "$choice" ]; then
+            new_users+=("${users[i]}")
+        fi
+    done
+    
+    USERS[$protocol_key]="${new_users[*]}"
+    status "Utilisateur supprimé avec succès"
 }
 
 remove_user() {
-  header
-  echo -e " ${CYAN}Supprimer un utilisateur${NC}\n"
-  echo -e " ${BLUE}1.${NC} VLESS WS"
-  echo -e " ${BLUE}2.${NC} VLESS TCP"
-  echo -e " ${BLUE}3.${NC} VLESS gRPC"
-  echo -e " ${BLUE}4.${NC} VLESS HTTP/2"
-  echo -e " ${BLUE}5.${NC} VMess WS"
-  echo -e " ${BLUE}6.${NC} VMess TCP"
-  echo -e " ${BLUE}7.${NC} Trojan WS"
-  echo -e " ${BLUE}8.${NC} Trojan TCP"
-  echo -e " ${BLUE}9.${NC} Shadowsocks"
-  echo -e " ${BLUE}10.${NC} Reality TCP"
-  echo -e " ${BLUE}11.${NC} Reality UDP"
-  echo -e " ${BLUE}0.${NC} Retour\n"
-  
-  read -rp " Choisissez le type d'utilisateur : " choice
-  
-  case $choice in
-    1) remove_user_type "VLESS WS" USERS["VLESS_WS"] ;;
-    2) remove_user_type "VLESS TCP" USERS["VLESS_TCP"] ;;
-    3) remove_user_type "VLESS gRPC" USERS["VLESS_GRPC"] ;;
-    4) remove_user_type "VLESS HTTP/2" USERS["VLESS_H2"] ;;
-    5) remove_user_type "VMess WS" USERS["VMESS_WS"] ;;
-    6) remove_user_type "VMess TCP" USERS["VMESS_TCP"] ;;
-    7) remove_user_type "Trojan WS" USERS["TROJAN_WS"] ;;
-    8) remove_user_type "Trojan TCP" USERS["TROJAN_TCP"] ;;
-    9) remove_user_type "Shadowsocks" USERS["SHADOWSOCKS"] ;;
-    10) remove_user_type "Reality TCP" USERS["REALITY"] ;;
-    11) remove_user_type "Reality UDP" USERS["REALITY_UDP"] ;;
-    0) return ;;
-    *) 
-      error "Option invalide"
-      pause
-      ;;
-  esac
-  
-  save_config
-  pause
+    header
+    echo -e " ${CYAN}Supprimer un utilisateur${NC}\n"
+    echo -e " ${BLUE}1.${NC} VLESS WS"
+    echo -e " ${BLUE}2.${NC} VLESS TCP"
+    echo -e " ${BLUE}3.${NC} VLESS gRPC"
+    echo -e " ${BLUE}4.${NC} VLESS HTTP/2"
+    echo -e " ${BLUE}5.${NC} VLESS HTTP Upgrade"
+    echo -e " ${BLUE}6.${NC} VMess WS"
+    echo -e " ${BLUE}7.${NC} VMess TCP"
+    echo -e " ${BLUE}8.${NC} Trojan WS"
+    echo -e " ${BLUE}9.${NC} Trojan TCP"
+    echo -e " ${BLUE}10.${NC} Shadowsocks"
+    echo -e " ${BLUE}11.${NC} Reality TCP"
+    echo -e " ${BLUE}12.${NC} Reality UDP"
+    echo -e " ${BLUE}0.${NC} Retour\n"
+    
+    read -rp " Choisissez le type d'utilisateur : " choice
+    
+    case $choice in
+        1) remove_user_type "VLESS WS" "VLESS_WS" ;;
+        2) remove_user_type "VLESS TCP" "VLESS_TCP" ;;
+        3) remove_user_type "VLESS gRPC" "VLESS_GRPC" ;;
+        4) remove_user_type "VLESS HTTP/2" "VLESS_H2" ;;
+        5) remove_user_type "VLESS HTTP Upgrade" "VLESS_H2_UPGRADE" ;;
+        6) remove_user_type "VMess WS" "VMESS_WS" ;;
+        7) remove_user_type "VMess TCP" "VMESS_TCP" ;;
+        8) remove_user_type "Trojan WS" "TROJAN_WS" ;;
+        9) remove_user_type "Trojan TCP" "TROJAN_TCP" ;;
+        10) remove_user_type "Shadowsocks" "SHADOWSOCKS" ;;
+        11) remove_user_type "Reality TCP" "REALITY" ;;
+        12) remove_user_type "Reality UDP" "REALITY_UDP" ;;
+        0) return ;;
+        *) 
+            error "Option invalide"
+            pause
+            ;;
+    esac
+    
+    save_config
+    pause
 }
 
-remove_user() {
-  header
-  echo -e " ${CYAN}Supprimer un utilisateur${NC}\n"
-  echo -e " ${BLUE}1.${NC} VLESS WS"
-  echo -e " ${BLUE}2.${NC} VLESS TCP"
-  echo -e " ${BLUE}3.${NC} VLESS gRPC"
-  echo -e " ${BLUE}4.${NC} VLESS HTTP/2"
-  echo -e " ${BLUE}5.${NC} VLESS HTTP Upgrade"
-  echo -e " ${BLUE}6.${NC} VMess WS"
-  echo -e " ${BLUE}7.${NC} VMess TCP"
-  echo -e " ${BLUE}8.${NC} Trojan WS"
-  echo -e " ${BLUE}9.${NC} Trojan TCP"
-  echo -e " ${BLUE}10.${NC} Shadowsocks"
-  echo -e " ${BLUE}11.${NC} Reality TCP"
-  echo -e " ${BLUE}12.${NC} Reality UDP"
-  echo -e " ${BLUE}0.${NC} Retour\n"
-  
-  read -rp " Choisissez le type d'utilisateur : " choice
-  
-  case $choice in
-    1) remove_user_type "VLESS WS" USERS["VLESS_WS"] ;;
-    2) remove_user_type "VLESS TCP" USERS["VLESS_TCP"] ;;
-    3) remove_user_type "VLESS gRPC" USERS["VLESS_GRPC"] ;;
-    4) remove_user_type "VLESS HTTP/2" USERS["VLESS_H2"] ;;
-    5) remove_user_type "VLESS HTTP Upgrade" USERS["VLESS_H2_UPGRADE"] ;;
-    6) remove_user_type "VMess WS" USERS["VMESS_WS"] ;;
-    7) remove_user_type "VMess TCP" USERS["VMESS_TCP"] ;;
-    8) remove_user_type "Trojan WS" USERS["TROJAN_WS"] ;;
-    9) remove_user_type "Trojan TCP" USERS["TROJAN_TCP"] ;;
-    10) remove_user_type "Shadowsocks" USERS["SHADOWSOCKS"] ;;
-    11) remove_user_type "Reality TCP" USERS["REALITY"] ;;
-    12) remove_user_type "Reality UDP" USERS["REALITY_UDP"] ;;
-    0) return ;;
-    *) 
-      error "Option invalide"
-      pause
-      ;;
-  esac
-  
-  save_config
-  pause
+# Menu principal
+main_menu() {
+    while true; do
+        header
+        echo -e " ${CYAN}Menu Principal${NC}\n"
+        echo -e " ${BLUE}1.${NC} Ajouter un utilisateur"
+        echo -e " ${BLUE}2.${NC} Supprimer un utilisateur"
+        echo -e " ${BLUE}3.${NC} Afficher la configuration"
+        echo -e " ${BLUE}4.${NC} Sauvegarder la configuration"
+        echo -e " ${BLUE}0.${NC} Quitter\n"
+        
+        read -rp " Choisissez une option : " choice
+        
+        case $choice in
+            1) add_user ;;
+            2) remove_user ;;
+            3) show_config ;;
+            4) save_config && status "Configuration sauvegardée" || error "Erreur de sauvegarde" ;;
+            0) exit 0 ;;
+            *) 
+                error "Option invalide"
+                pause
+                ;;
+        esac
+    done
 }
 
+# Démarrer le menu principal
+main_menu
 remove_user_type() {
   local type=$1
   local -n arr=$2
