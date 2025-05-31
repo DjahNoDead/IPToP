@@ -271,37 +271,45 @@ save_config() {
   # Préparation des configurations
   local common_tls_settings="\"tlsSettings\": {\"certificates\": [{\"certificateFile\": \"/etc/letsencrypt/live/$DOMAIN/fullchain.pem\", \"keyFile\": \"/etc/letsencrypt/live/$DOMAIN/privkey.pem\"}]}"
   
-  # Génération des configurations clients
-  local vless_ws_clients=""
-  local vmess_ws_clients=""
-  local trojan_ws_clients=""
-  local vless_grpc_clients=""
-  local reality_clients=""
+  # Génération des configurations clients pour tous les protocoles
+  local vless_ws_clients="" vless_tcp_clients="" vless_grpc_clients="" vless_h2_clients=""
+  local vmess_ws_clients="" vmess_tcp_clients=""
+  local trojan_ws_clients="" trojan_tcp_clients=""
+  local ss_clients="" reality_clients="" reality_udp_clients=""
 
-  for uuid in ${USERS[VLESS_WS]}; do
-    vless_ws_clients+="{\"id\":\"$uuid\",\"flow\":\"xtls-rprx-vision\",\"email\":\"user@vless-ws\"},"
-  done
-  vless_ws_clients=${vless_ws_clients%,}
+  # Fonction pour générer les configurations clients
+  generate_clients() {
+    local protocol=$1
+    local clients=""
+    
+    for user in ${USERS[$protocol]}; do
+      case $protocol in
+        VLESS_WS|VLESS_TCP|VLESS_GRPC|VLESS_H2|REALITY|REALITY_UDP)
+          clients+="{\"id\":\"$user\",\"flow\":\"$([ "$protocol" = "VLESS_TCP" ] && echo "xtls-rprx-vision" || [ "$protocol" = "REALITY" ] && echo "xtls-rprx-vision" || echo "")\",\"email\":\"user@${protocol,,}\"},"
+          ;;
+        VMESS_WS|VMESS_TCP)
+          clients+="{\"id\":\"$user\",\"alterId\":0,\"email\":\"user@${protocol,,}\"},"
+          ;;
+        TROJAN_WS|TROJAN_TCP|SHADOWSOCKS)
+          clients+="{\"password\":\"$user\",\"email\":\"user@${protocol,,}\"}$([ "$protocol" = "TROJAN_TCP" ] && echo ",\"flow\":\"xtls-rprx-direct\""),"
+          ;;
+      esac
+    done
+    echo "${clients%,}"
+  }
 
-  for uuid in ${USERS[VMESS_WS]}; do
-    vmess_ws_clients+="{\"id\":\"$uuid\",\"alterId\":0,\"email\":\"user@vmess-ws\"},"
-  done
-  vmess_ws_clients=${vmess_ws_clients%,}
-
-  for pwd in ${USERS[TROJAN_WS]}; do
-    trojan_ws_clients+="{\"password\":\"$pwd\",\"email\":\"user@trojan-ws\"},"
-  done
-  trojan_ws_clients=${trojan_ws_clients%,}
-
-  for uuid in ${USERS[VLESS_GRPC]}; do
-    vless_grpc_clients+="{\"id\":\"$uuid\",\"flow\":\"\",\"email\":\"user@vless-grpc\"},"
-  done
-  vless_grpc_clients=${vless_grpc_clients%,}
-
-  for uuid in ${USERS[REALITY]}; do
-    reality_clients+="{\"id\":\"$uuid\",\"flow\":\"xtls-rprx-vision\",\"email\":\"user@reality\"},"
-  done
-  reality_clients=${reality_clients%,}
+  # Générer toutes les configurations clients
+  vless_ws_clients=$(generate_clients VLESS_WS)
+  vless_tcp_clients=$(generate_clients VLESS_TCP)
+  vless_grpc_clients=$(generate_clients VLESS_GRPC)
+  vless_h2_clients=$(generate_clients VLESS_H2)
+  vmess_ws_clients=$(generate_clients VMESS_WS)
+  vmess_tcp_clients=$(generate_clients VMESS_TCP)
+  trojan_ws_clients=$(generate_clients TROJAN_WS)
+  trojan_tcp_clients=$(generate_clients TROJAN_TCP)
+  ss_clients=$(generate_clients SHADOWSOCKS)
+  reality_clients=$(generate_clients REALITY)
+  reality_udp_clients=$(generate_clients REALITY_UDP)
 
   # Écriture du fichier de configuration
   cat > "$CONFIG_PATH" <<EOF
@@ -321,6 +329,16 @@ save_config() {
     },
     {
       "port": 443,
+      "protocol": "vless",
+      "settings": {"clients": [$vless_tcp_clients], "decryption": "none"},
+      "streamSettings": {
+        "network": "tcp",
+        "security": "tls",
+        $common_tls_settings
+      }
+    },
+    {
+      "port": 443,
       "protocol": "vmess",
       "settings": {"clients": [$vmess_ws_clients]},
       "streamSettings": {
@@ -328,6 +346,16 @@ save_config() {
         "security": "tls",
         $common_tls_settings,
         "wsSettings": {"path": "/vmessws"}
+      }
+    },
+    {
+      "port": 443,
+      "protocol": "vmess",
+      "settings": {"clients": [$vmess_tcp_clients]},
+      "streamSettings": {
+        "network": "tcp",
+        "security": "tls",
+        $common_tls_settings
       }
     },
     {
@@ -343,6 +371,16 @@ save_config() {
     },
     {
       "port": 443,
+      "protocol": "trojan",
+      "settings": {"clients": [$trojan_tcp_clients]},
+      "streamSettings": {
+        "network": "tcp",
+        "security": "tls",
+        $common_tls_settings
+      }
+    },
+    {
+      "port": 443,
       "protocol": "vless",
       "settings": {"clients": [$vless_grpc_clients], "decryption": "none"},
       "streamSettings": {
@@ -351,6 +389,26 @@ save_config() {
         $common_tls_settings,
         "grpcSettings": {"serviceName": "vlessgrpc"}
       }
+    },
+    {
+      "port": 443,
+      "protocol": "vless",
+      "settings": {"clients": [$vless_h2_clients], "decryption": "none"},
+      "streamSettings": {
+        "network": "h2",
+        "security": "tls",
+        $common_tls_settings,
+        "httpSettings": {"host": ["$DOMAIN"], "path": "/vlessh2"}
+      }
+    },
+    {
+      "port": 443,
+      "protocol": "shadowsocks",
+      "settings": {
+        "clients": [$ss_clients],
+        "method": "aes-128-gcm"
+      },
+      "streamSettings": {"network": "tcp"}
     },
     {
       "port": 443,
@@ -368,17 +426,42 @@ save_config() {
           "shortIds": [$(printf "\"%s\"," "${REALITY_SHORT_IDS[@]}" | sed 's/,$//')]
         }
       }
+    },
+    {
+      "port": 443,
+      "protocol": "vless",
+      "settings": {"clients": [$reality_udp_clients], "decryption": "none"},
+      "streamSettings": {
+        "network": "udp",
+        "security": "reality",
+        "realitySettings": {
+          "show": false,
+          "dest": "$DOMAIN:443",
+          "xver": 1,
+          "serverNames": ["$DOMAIN"],
+          "privateKey": "$REALITY_PRIVATE_KEY",
+          "shortIds": [$(printf "\"%s\"," "${REALITY_SHORT_IDS[@]}" | sed 's/,$//')]
+        }
+      }
     }
   ],
   "outbounds": [
-    {"protocol": "freedom"},
+    {"protocol": "freedom", "tag": "direct"},
     {"protocol": "blackhole", "tag": "block"}
   ],
   "routing": {
-    "domainStrategy": "AsIs",
+    "domainStrategy": "IPIfNonMatch",
     "rules": [
-      {"type": "field", "ip": ["geoip:private"], "outboundTag": "block"},
-      {"type": "field", "domain": ["geosite:category-ads-all"], "outboundTag": "block"}
+      {
+        "type": "field",
+        "ip": ["geoip:private"],
+        "outboundTag": "block"
+      },
+      {
+        "type": "field",
+        "domain": ["geosite:category-ads-all"],
+        "outboundTag": "block"
+      }
     ]
   }
 }
@@ -391,13 +474,16 @@ EOF
   fi
 
   # Sauvegarde des paramètres
+  local saved_vars=(
+    PORTS USERS REALITY_PRIVATE_KEY 
+    REALITY_PUBLIC_KEY REALITY_SHORT_IDS DOMAIN
+  )
+  
   {
-    declare -p PORTS
-    declare -p USERS
-    declare -p REALITY_PRIVATE_KEY
-    declare -p REALITY_PUBLIC_KEY
-    declare -p REALITY_SHORT_IDS
-  } > xray_config.sh && status "Configuration 443 multi-protocoles sauvegardée" || {
+    for var in "${saved_vars[@]}"; do
+      declare -p "$var"
+    done
+  } > xray_config.sh && status "Configuration multi-protocoles sauvegardée" || {
     error "Erreur lors de la sauvegarde"
     return 1
   }
@@ -881,6 +967,17 @@ generate_links() {
   # Vérifier si le fichier existe et le supprimer
   [ -f "config_clients.txt" ] && rm -f "config_clients.txt"
 
+  # Fonction pour ajouter des configurations au fichier
+  add_config() {
+    local title=$1
+    local config=$2
+    if [ -n "$config" ]; then
+      echo -e "\n=== $title ===" >> config_clients.txt
+      echo -e "$config" >> config_clients.txt
+    fi
+  }
+
+  # En-tête du fichier
   cat > config_clients.txt <<EOF
 ===========================================
 === Xray Client Configurations - DjahNoDead 👽 ===
@@ -889,18 +986,7 @@ generate_links() {
 === Reality Public Key: $REALITY_PUBLIC_KEY ===
 === Short IDs: ${REALITY_SHORT_IDS[*]} ===
 ===========================================
-
 EOF
-
-  # Fonction pour ajouter des configurations
-  add_config() {
-    local protocol=$1
-    local config=$2
-    if [ -n "$config" ]; then
-      echo -e "\n=== $protocol ===\n" >> config_clients.txt
-      echo "$config" >> config_clients.txt
-    fi
-  }
 
   # VLESS WS
   if [ -n "${USERS[VLESS_WS]}" ]; then
@@ -915,7 +1001,7 @@ EOF
   if [ -n "${USERS[VLESS_TCP]}" ]; then
     config=""
     for uuid in ${USERS[VLESS_TCP]}; do
-      config+="vless://$uuid@$DOMAIN:${PORTS[VLESS_TCP]}?security=tls&encryption=none&type=tcp#$DOMAIN-VLESS-TCP\n"
+      config+="vless://$uuid@$DOMAIN:443?security=tls&encryption=none&type=tcp#$DOMAIN-VLESS-TCP\n"
     done
     add_config "VLESS TCP" "$config"
   fi
@@ -924,7 +1010,7 @@ EOF
   if [ -n "${USERS[VLESS_GRPC]}" ]; then
     config=""
     for uuid in ${USERS[VLESS_GRPC]}; do
-      config+="vless://$uuid@$DOMAIN:${PORTS[VLESS_GRPC]}?type=grpc&serviceName=vlessgrpc&security=tls#$DOMAIN-VLESS-gRPC\n"
+      config+="vless://$uuid@$DOMAIN:443?type=grpc&serviceName=vlessgrpc&security=tls#$DOMAIN-VLESS-gRPC\n"
     done
     add_config "VLESS gRPC" "$config"
   fi
@@ -936,7 +1022,7 @@ EOF
       vmess_config=$(jq -n \
         --arg uuid "$uuid" \
         --arg host "$DOMAIN" \
-        --arg port "${PORTS[VMESS_WS]}" \
+        --arg port "443" \
         '{
           v: "2", ps: "vmess-ws", add: $host,
           port: $port, id: $uuid, aid: "0",
@@ -961,7 +1047,7 @@ EOF
   if [ -n "${USERS[SHADOWSOCKS]}" ]; then
     config=""
     for pwd in ${USERS[SHADOWSOCKS]}; do
-      config+="ss://$(echo -n "aes-128-gcm:$pwd" | base64 -w 0)@$DOMAIN:${PORTS[SHADOWSOCKS]}#$DOMAIN-SS\n"
+      config+="ss://$(echo -n "aes-128-gcm:$pwd" | base64 -w 0)@$DOMAIN:443#$DOMAIN-SS\n"
     done
     add_config "SHADOWSOCKS" "$config"
   fi
@@ -970,7 +1056,7 @@ EOF
   if [ -n "${USERS[REALITY]}" ]; then
     config=""
     for uuid in ${USERS[REALITY]}; do
-      config+="vless://$uuid@$DOMAIN:${PORTS[REALITY]}?type=tcp&security=reality&pbk=$REALITY_PUBLIC_KEY&sid=${REALITY_SHORT_IDS[0]}&fp=chrome#${DOMAIN}-REALITY-TCP\n"
+      config+="vless://$uuid@$DOMAIN:443?type=tcp&security=reality&pbk=$REALITY_PUBLIC_KEY&sid=${REALITY_SHORT_IDS[0]}&fp=chrome#${DOMAIN}-REALITY-TCP\n"
     done
     add_config "REALITY TCP" "$config"
   fi
@@ -979,11 +1065,30 @@ EOF
   if [ -n "${USERS[REALITY_UDP]}" ]; then
     config=""
     for uuid in ${USERS[REALITY_UDP]}; do
-      config+="vless://$uuid@$DOMAIN:${PORTS[REALITY_UDP]}?type=udp&security=reality&pbk=$REALITY_PUBLIC_KEY&sid=${REALITY_SHORT_IDS[0]}&fp=chrome#${DOMAIN}-REALITY-UDP\n"
+      config+="vless://$uuid@$DOMAIN:443?type=udp&security=reality&pbk=$REALITY_PUBLIC_KEY&sid=${REALITY_SHORT_IDS[0]}&fp=chrome#${DOMAIN}-REALITY-UDP\n"
     done
     add_config "REALITY UDP" "$config"
   fi
 
+  # VLESS HTTP/2
+  if [ -n "${USERS[VLESS_H2]}" ]; then
+    config=""
+    for uuid in ${USERS[VLESS_H2]}; do
+      config+="vless://$uuid@$DOMAIN:443?type=http&security=tls&path=%2Fvlessh2#$DOMAIN-VLESS-H2\n"
+    done
+    add_config "VLESS HTTP/2" "$config"
+  fi
+
+  # VLESS HTTP Upgrade
+  if [ -n "${USERS[VLESS_H2_UPGRADE]}" ]; then
+    config=""
+    for uuid in ${USERS[VLESS_H2_UPGRADE]}; do
+      config+="vless://$uuid@$DOMAIN:443?type=http&security=none&path=%2Fhttpupgrade#$DOMAIN-VLESS-HTTP-UPGRADE\n"
+    done
+    add_config "VLESS HTTP Upgrade" "$config"
+  fi
+
+  # Pied de page
   echo -e "\n===========================================" >> config_clients.txt
   echo -e "=== FIN DES CONFIGURATIONS ===" >> config_clients.txt
   echo -e "\n=== INSTRUCTIONS ===" >> config_clients.txt
@@ -991,7 +1096,7 @@ EOF
   echo -e "- gRPC: Nécessite un client supportant gRPC" >> config_clients.txt
   echo -e "- HTTP Upgrade: Compatible avec Cloudflare CDN" >> config_clients.txt
 
-  # Afficher le contenu du fichier
+  # Affichage du résultat
   status "Configurations sauvegardées dans ${YELLOW}config_clients.txt${NC}"
   echo -e "\n${CYAN}=== CONFIGURATIONS GÉNÉRÉES ===${NC}"
   cat config_clients.txt
