@@ -24,39 +24,40 @@ MAGENTA='\033[0;35m'
 NC='\033[0m'
 
 # Ports configurables
+#!/bin/bash
+
+# Configuration des ports (tableau associatif)
 declare -A PORTS=(
-  ["VLESS_WS"]=10000
-  ["VLESS_TCP"]=10001
-  ["VLESS_GRPC"]=10002
-  ["VLESS_H2"]=10003
-  ["VMESS_WS"]=10004
-  ["VMESS_TCP"]=10005
-  ["TROJAN_WS"]=10006
-  ["TROJAN_TCP"]=10007
-  ["SHADOWSOCKS"]=10008
-  ["REALITY"]=10009
-  ["REALITY_UDP"]=10010
+    [VLESS_WS]=10000
+    [VLESS_TCP]=10001 
+    [VLESS_GRPC]=10002
+    [VLESS_H2]=10003
+    [VMESS_WS]=10004
+    [VMESS_TCP]=10005
+    [TROJAN_WS]=10006
+    [TROJAN_TCP]=10007
+    [SHADOWSOCKS]=10008
+    [REALITY]=10009
+    [REALITY_UDP]=10010
 )
 
-# Listes utilisateurs
-declare -A USERS=(
-  ["VLESS_WS"]=()
-  ["VLESS_TCP"]=()
-  ["VLESS_GRPC"]=()
-  ["VLESS_H2"]=()
-  ["VMESS_WS"]=()
-  ["VMESS_TCP"]=()
-  ["TROJAN_WS"]=()
-  ["TROJAN_TCP"]=()
-  ["SHADOWSOCKS"]=()
-  ["REALITY"]=()
-  ["REALITY_UDP"]=()
-)
+# Initialisation des listes utilisateurs (tableaux indexés)
+declare -a VLESS_WS_USERS=()
+declare -a VLESS_TCP_USERS=()
+declare -a VLESS_GRPC_USERS=()
+declare -a VLESS_H2_USERS=()
+declare -a VMESS_WS_USERS=()
+declare -a VMESS_TCP_USERS=()
+declare -a TROJAN_WS_USERS=()
+declare -a TROJAN_TCP_USERS=()
+declare -a SHADOWSOCKS_USERS=()
+declare -a REALITY_USERS=()
+declare -a REALITY_UDP_USERS=()
 
 # Paramètres Reality
 REALITY_PRIVATE_KEY=""
 REALITY_PUBLIC_KEY=""
-REALITY_SHORT_IDS=()
+declare -a REALITY_SHORT_IDS=()
 
 # ============================================
 # FONCTIONS D'AFFICHAGE
