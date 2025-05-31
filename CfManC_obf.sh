@@ -148,25 +148,95 @@ load_config() {
   fi
 }
 
+configure_nginx() {
+  header
+  echo -e " ${CYAN}Configuration Nginx pour multi-protocoles sur 443${NC}\n"
+  
+  cat > /etc/nginx/sites-available/"$DOMAIN".conf <<EOF
+server {
+    listen 80;
+    server_name $DOMAIN;
+    return 301 https://\$host\$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name $DOMAIN;
+
+    ssl_certificate /etc/letsencrypt/live/$DOMAIN/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/$DOMAIN/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:DHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-GCM-SHA384;
+
+    # VLESS WS
+    location /vlessws {
+        proxy_pass http://127.0.0.1:443;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host \$host;
+    }
+
+    # VMESS WS
+    location /vmessws {
+        proxy_pass http://127.0.0.1:443;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host \$host;
+    }
+
+    # TROJAN WS
+    location /trojanws {
+        proxy_pass http://127.0.0.1:443;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host \$host;
+    }
+
+    # VLESS gRPC
+    location /vlessgrpc {
+        grpc_pass grpc://127.0.0.1:443;
+    }
+
+    # Page par défaut
+    location / {
+        root /var/www/html;
+        index index.html;
+        return 404;
+    }
+}
+EOF
+
+  # Test et recharge
+  if nginx -t && systemctl reload nginx; then
+    status "Nginx configuré pour multi-protocoles sur 443"
+  else
+    error "Erreur de configuration Nginx"
+    return 1
+  fi
+  pause
+}
+
 # ============================================
 # FONCTIONS DE CONFIGURATION
 # ============================================
 
 configure_ports() {
   header
-  echo -e " ${CYAN}Configuration des ports${NC}\n"
-  echo -e " ${YELLOW}Laissez vide pour conserver les valeurs actuelles${NC}\n"
+  echo -e " ${CYAN}Configuration des ports (Tous sur 443 recommandé)${NC}\n"
   
+  # Définir tous les ports sur 443 par défaut
   for proto in "${!PORTS[@]}"; do
-    input "Port $proto (actuel: ${PORTS[$proto]}) : "
-    read -r input
-    [[ -n "$input" ]] && PORTS["$proto"]=$input
+    PORTS["$proto"]=443
   done
-  
-  status "Ports mis à jour :"
-  for proto in "${!PORTS[@]}"; do
-    echo -e "  ${CYAN}•${NC} $proto : ${YELLOW}${PORTS[$proto]}${NC}"
-  done
+
+  status "Tous les ports sont maintenant configurés sur 443"
+  echo -e "\n${YELLOW}Note:${NC} Les protocoles seront différenciés par:"
+  echo -e " - Path WS (/vlessws, /vmessws, etc.)"
+  echo -e " - Type de transport (TCP/UDP/GRPC)"
+  echo -e " - Configuration Reality"
   pause
 }
 
@@ -198,18 +268,98 @@ configure_reality() {
 }
 
 save_config() {
-  # Préparation des configurations pour chaque protocole
-  local vless_ws_clients=""
-  local vless_tcp_clients=""
-  local vless_grpc_clients=""
-  local vless_h2_clients=""
-  local vmess_ws_clients=""
-  local vmess_tcp_clients=""
-  local trojan_ws_clients=""
-  local trojan_tcp_clients=""
-  local ss_clients=""
-  local reality_clients=""
-  local reality_udp_clients=""
+  # Préparation des configurations
+  local common_tls_settings="\"tlsSettings\": {\"certificates\": [{\"certificateFile\": \"/etc/letsencrypt/live/$DOMAIN/fullchain.pem\", \"keyFile\": \"/etc/letsencrypt/live/$DOMAIN/privkey.pem\"}]}"
+  
+  cat > "$CONFIG_PATH" <<EOF
+{
+  "log": {"loglevel": "warning"},
+  "inbounds": [
+    {
+      "port": 443,
+      "protocol": "vless",
+      "settings": {"clients": [$(for uuid in ${USERS[VLESS_WS]}; do echo "{\"id\":\"$uuid\",\"flow\":\"xtls-rprx-vision\",\"email\":\"user@vless-ws\"},"; done | sed '$ s/,$//')], "decryption": "none"},
+      "streamSettings": {
+        "network": "ws",
+        "security": "tls",
+        $common_tls_settings,
+        "wsSettings": {"path": "/vlessws"}
+      }
+    },
+    {
+      "port": 443,
+      "protocol": "vmess",
+      "settings": {"clients": [$(for uuid in ${USERS[VMESS_WS]}; do echo "{\"id\":\"$uuid\",\"alterId\":0,\"email\":\"user@vmess-ws\"},"; done | sed '$ s/,$//')]},
+      "streamSettings": {
+        "network": "ws",
+        "security": "tls",
+        $common_tls_settings,
+        "wsSettings": {"path": "/vmessws"}
+      }
+    },
+    {
+      "port": 443,
+      "protocol": "trojan",
+      "settings": {"clients": [$(for pwd in ${USERS[TROJAN_WS]}; do echo "{\"password\":\"$pwd\",\"email\":\"user@trojan-ws\"},"; done | sed '$ s/,$//')]},
+      "streamSettings": {
+        "network": "ws",
+        "security": "tls",
+        $common_tls_settings,
+        "wsSettings": {"path": "/trojanws"}
+      }
+    },
+    {
+      "port": 443,
+      "protocol": "vless",
+      "settings": {"clients": [$(for uuid in ${USERS[VLESS_GRPC]}; do echo "{\"id\":\"$uuid\",\"flow\":\"\",\"email\":\"user@vless-grpc\"},"; done | sed '$ s/,$//')], "decryption": "none"},
+      "streamSettings": {
+        "network": "grpc",
+        "security": "tls",
+        $common_tls_settings,
+        "grpcSettings": {"serviceName": "vlessgrpc"}
+      }
+    },
+    {
+      "port": 443,
+      "protocol": "vless",
+      "settings": {"clients": [$(for uuid in ${USERS[REALITY]}; do echo "{\"id\":\"$uuid\",\"flow\":\"xtls-rprx-vision\",\"email\":\"user@reality\"},"; done | sed '$ s/,$//')], "decryption": "none"},
+      "streamSettings": {
+        "network": "tcp",
+        "security": "reality",
+        "realitySettings": {
+          "show": false,
+          "dest": "$DOMAIN:443",
+          "xver": 1,
+          "serverNames": ["$DOMAIN"],
+          "privateKey": "$REALITY_PRIVATE_KEY",
+          "shortIds": [$(printf "\"%s\"," "${REALITY_SHORT_IDS[@]}" | sed 's/,$//')]
+        }
+      }
+    }
+  ],
+  "outbounds": [
+    {"protocol": "freedom"},
+    {"protocol": "blackhole", "tag": "block"}
+  ]
+}
+EOF
+
+  # Vérification et sauvegarde
+  if jq empty "$CONFIG_PATH" &>/dev/null; then
+    {
+      declare -p PORTS
+      declare -p USERS
+      declare -p REALITY_PRIVATE_KEY
+      declare -p REALITY_PUBLIC_KEY
+      declare -p REALITY_SHORT_IDS
+    } > xray_config.sh
+    status "Configuration 443 multi-protocoles sauvegardée"
+    return 0
+  else
+    error "Erreur dans la configuration JSON"
+    return 1
+  fi
+}
 
   # Générer les configurations clients pour chaque protocole
   for proto in "${!USERS[@]}"; do
@@ -458,7 +608,7 @@ EOF
 
 install_all() {
   header
-  echo -e " ${CYAN}Installation complète${NC}\n"
+  echo -e " ${CYAN}Installation complète (Multi-protocole sur 443)${NC}\n"
   
   if [ -f "$CONFIG_PATH" ]; then
     warning "Xray semble déjà être installé"
@@ -466,66 +616,81 @@ install_all() {
     [[ ! "$confirm" =~ ^[oO]$ ]] && return
   fi
 
-  # Mise à jour système
+  # Étape 1: Mise à jour système
   echo -n " [1/9] Mise à jour des paquets..."
   if apt update &>/dev/null && apt upgrade -y &>/dev/null; then
     echo -e "${GREEN} ✓${NC}"
   else
-    error "Échec"
+    error "Échec de la mise à jour"
     return 1
   fi
 
-  # Installation dépendances
+  # Étape 2: Installation dépendances
   echo -n " [2/9] Installation des dépendances..."
   if apt install -y curl wget unzip nginx socat ufw certbot python3-certbot-nginx fail2ban jq openssl &>/dev/null; then
     echo -e "${GREEN} ✓${NC}"
   else
-    error "Échec"
+    error "Échec de l'installation des dépendances"
     return 1
   fi
 
-  # Configuration UFW
-  echo -n " [3/9] Configuration du pare-feu..."
+  # Étape 3: Configuration UFW
+  echo -n " [3/9] Configuration du pare-feu (443 seulement)..."
   ufw allow 'OpenSSH' &>/dev/null
-  ufw allow 80 &>/dev/null
-  ufw allow 443 &>/dev/null
+  ufw allow 80/tcp &>/dev/null   # Pour Certbot
+  ufw allow 443/tcp &>/dev/null  # Seul port ouvert
+  ufw allow 443/udp &>/dev/null  # Pour Reality UDP
   if ufw --force enable &>/dev/null; then
     echo -e "${GREEN} ✓${NC}"
   else
-    error "Échec"
+    error "Échec de la configuration du pare-feu"
     return 1
   fi
 
-  # Configuration Fail2ban
+  # Étape 4: Configuration Fail2ban
   echo -n " [4/9] Configuration de Fail2ban..."
   if systemctl enable --now fail2ban &>/dev/null; then
     echo -e "${GREEN} ✓${NC}"
   else
-    error "Échec"
+    error "Échec de la configuration Fail2ban"
     return 1
   fi
 
-  # Installation Xray
+  # Étape 5: Installation Xray
   echo -n " [5/9] Installation de Xray..."
   if bash <(curl -Ls https://raw.githubusercontent.com/XTLS/Xray-install/main/install-release.sh) &>/dev/null; then
     echo -e "${GREEN} ✓${NC}"
   else
-    error "Échec"
+    error "Échec de l'installation de Xray"
     return 1
   fi
 
-  # Création répertoires
+  # Étape 6: Configuration des répertoires
   mkdir -p /usr/local/etc/xray /var/log/xray
 
-  # Configuration des ports
-  configure_ports || return 1
+  # Étape 7: Configuration automatique des ports sur 443
+  echo -n " [6/9] Configuration des ports (unifié sur 443)..."
+  declare -A PORTS=(
+    [VLESS_WS]=443
+    [VLESS_TCP]=443
+    [VLESS_GRPC]=443
+    [VLESS_H2]=443
+    [VMESS_WS]=443
+    [VMESS_TCP]=443
+    [TROJAN_WS]=443
+    [TROJAN_TCP]=443
+    [SHADOWSOCKS]=443
+    [REALITY]=443
+    [REALITY_UDP]=443
+  )
+  echo -e "${GREEN} ✓${NC}"
 
-  # Configuration Reality
-  echo -n " [6/9] Configuration de Reality..."
+  # Étape 8: Configuration Reality
+  echo -n " [7/9] Configuration de Reality..."
   generate_reality_keys
   echo -e "${GREEN} ✓${NC}"
 
-  # Demande informations
+  # Étape 9: Configuration du domaine
   header
   while [[ -z "$DOMAIN" ]]; do
     input "Entrez le nom de domaine (ex: proxy.exemple.com) : "
@@ -533,12 +698,12 @@ install_all() {
   done
 
   while [[ ! "$EMAIL" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$ ]]; do
-    input "Entrez votre email valide : "
+    input "Entrez votre email valide (pour Certbot) : "
     read -r EMAIL
   done
 
-  # Configuration Nginx et certificat
-  echo -n " [7/9] Configuration du certificat TLS..."
+  # Étape 10: Configuration Nginx et certificat
+  echo -n " [8/9] Configuration du certificat TLS..."
   rm -f /etc/nginx/sites-enabled/default
   cat > /etc/nginx/sites-available/"$DOMAIN".conf <<EOF
 server {
@@ -552,12 +717,12 @@ EOF
   if certbot --nginx -d "$DOMAIN" --email "$EMAIL" --agree-tos --non-interactive &>/dev/null; then
     echo -e "${GREEN} ✓${NC}"
   else
-    error "Échec"
+    error "Échec de l'obtention du certificat TLS"
     return 1
   fi
 
-  # Configuration finale Nginx
-  echo -n " [8/9] Configuration de Nginx..."
+  # Étape 11: Configuration finale Nginx pour multi-protocole
+  echo -n " [9/9] Configuration Nginx multi-protocole..."
   cat > /etc/nginx/sites-available/"$DOMAIN".conf <<EOF
 server {
     listen 443 ssl http2;
@@ -565,10 +730,12 @@ server {
 
     ssl_certificate /etc/letsencrypt/live/$DOMAIN/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/$DOMAIN/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:DHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-GCM-SHA384;
 
     # VLESS WS
     location /vlessws {
-        proxy_pass http://127.0.0.1:${PORTS[VLESS_WS]};
+        proxy_pass http://127.0.0.1:443;
         proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection "upgrade";
@@ -577,7 +744,7 @@ server {
 
     # VMess WS
     location /vmessws {
-        proxy_pass http://127.0.0.1:${PORTS[VMESS_WS]};
+        proxy_pass http://127.0.0.1:443;
         proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection "upgrade";
@@ -586,7 +753,7 @@ server {
 
     # Trojan WS
     location /trojanws {
-        proxy_pass http://127.0.0.1:${PORTS[TROJAN_WS]};
+        proxy_pass http://127.0.0.1:443;
         proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection "upgrade";
@@ -595,22 +762,22 @@ server {
 
     # VLESS gRPC
     location /vlessgrpc {
-        grpc_pass grpc://127.0.0.1:${PORTS[VLESS_GRPC]};
+        grpc_pass grpc://127.0.0.1:443;
     }
 
     # VLESS HTTP/2
     location /vlessh2 {
-        proxy_pass http://127.0.0.1:${PORTS[VLESS_H2]};
+        proxy_pass http://127.0.0.1:443;
         proxy_http_version 1.1;
         proxy_set_header Connection "";
         proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
     }
 
+    # Page par défaut
     location / {
         root /var/www/html;
         index index.html;
+        return 404;
     }
 }
 EOF
@@ -618,12 +785,12 @@ EOF
   if systemctl reload nginx &>/dev/null; then
     echo -e "${GREEN} ✓${NC}"
   else
-    error "Échec"
+    error "Échec de la configuration Nginx"
     return 1
   fi
 
-  # Création utilisateurs par défaut
-  echo -n " [9/9] Création des utilisateurs..."
+  # Création des utilisateurs par défaut
+  status "Création des utilisateurs par défaut..."
   USERS["VLESS_WS"]=$(generate_uuid) || return 1
   USERS["VLESS_TCP"]=$(generate_uuid) || return 1
   USERS["VLESS_GRPC"]=$(generate_uuid) || return 1
@@ -636,30 +803,43 @@ EOF
   USERS["REALITY"]=$(generate_uuid) || return 1
   USERS["REALITY_UDP"]=$(generate_uuid) || return 1
 
-  save_config || return 1
+  # Sauvegarde de la configuration
+  save_config || {
+    error "Échec de la sauvegarde de la configuration"
+    return 1
+  }
 
-  # Configuration service Xray
+  # Configuration du service Xray
   cat > /etc/systemd/system/xray.service <<EOF
 [Unit]
-Description=Service Xray
-After=network.target
+Description=Xray Service
+After=network.target nginx.service
 
 [Service]
 User=nobody
-ExecStart=$XRAY_BIN run -c $CONFIG_PATH
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
+ExecStart=$XRAY_BIN run -config $CONFIG_PATH
 Restart=on-failure
+RestartSec=3
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
-  systemctl daemon-reexec
+  systemctl daemon-reload
   systemctl enable --now xray &>/dev/null && status "Service Xray activé"
 
-  # Fin d'installation
+  # Finalisation
   header
   status "Installation terminée avec succès"
-  echo -e " ${CYAN}Un utilisateur par protocole a été créé${NC}"
+  echo -e " ${CYAN}Tous les protocoles fonctionnent sur le port 443${NC}"
+  echo -e " ${YELLOW}Configuration des chemins :${NC}"
+  echo -e "  - VLESS WS: /vlessws"
+  echo -e "  - VMESS WS: /vmessws"
+  echo -e "  - TROJAN WS: /trojanws"
+  echo -e "  - VLESS gRPC: /vlessgrpc"
+  
   generate_links
   pause
 }
@@ -1023,12 +1203,14 @@ EOF
 
 show_config() {
   header
-  echo -e " ${CYAN}Configuration actuelle${NC}\n"
+  echo -e " ${CYAN}Configuration Multi-Port 443${NC}\n"
   
-  echo -e " ${YELLOW}=== Ports ===${NC}"
-  for proto in "${!PORTS[@]}"; do
-    echo -e " ${BLUE}•${NC} $proto : ${PORTS[$proto]}"
-  done
+  echo -e " ${YELLOW}=== Tous les protocoles écoutent sur le port : 443 ===${NC}"
+  echo -e " ${BLUE}•${NC} Différenciation par chemins :"
+  echo -e "   ${GREEN}-${NC} /vlessws (VLESS WS)"
+  echo -e "   ${GREEN}-${NC} /vmessws (VMESS WS)"
+  echo -e "   ${GREEN}-${NC} /trojanws (Trojan WS)"
+  echo -e "   ${GREEN}-${NC} vlessgrpc (VLESS gRPC)"
   
   echo -e "\n ${YELLOW}=== Utilisateurs ===${NC}"
   for proto in "${!USERS[@]}"; do
@@ -1043,7 +1225,6 @@ show_config() {
   if [ -n "$REALITY_PUBLIC_KEY" ]; then
     echo -e "\n ${YELLOW}=== Reality ===${NC}"
     echo -e " ${BLUE}•${NC} Public Key: $REALITY_PUBLIC_KEY"
-    echo -e " ${BLUE}•${NC} Private Key: $REALITY_PRIVATE_KEY"
     echo -e " ${BLUE}•${NC} Short IDs: ${REALITY_SHORT_IDS[*]}"
   fi
   
