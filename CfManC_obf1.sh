@@ -233,6 +233,40 @@ EOF
 # FONCTIONS DE CONFIGURATION
 # ============================================
 
+configure_domain() {
+  header
+  echo -e " ${CYAN}Configuration du domaine${NC}\n"
+  
+  # Demander le domaine jusqu'à ce qu'il soit valide
+  while :; do
+    read -rp " Entrez le nom de domaine complet (ex: proxy.votresite.com) : " DOMAIN
+    DOMAIN=$(echo "$DOMAIN" | tr -d '[:space:]')  # Supprimer les espaces
+    
+    # Validation basique du domaine
+    if [[ -z "$DOMAIN" ]]; then
+      error "Le domaine ne peut pas être vide"
+    elif ! [[ "$DOMAIN" =~ ^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$ ]]; then
+      error "Format de domaine invalide"
+    else
+      break  # Sortir de la boucle si le domaine est valide
+    fi
+  done
+  
+  # Demander l'email pour Certbot
+  while :; do
+    read -rp " Entrez votre email pour les certificats SSL : " EMAIL
+    if [[ "$EMAIL" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$ ]]; then
+      break
+    else
+      error "Email invalide, veuillez réessayer"
+    fi
+  done
+
+  # Sauvegarder immédiatement
+  save_config && status "Domaine configuré avec succès" || error "Erreur de sauvegarde"
+  pause
+}
+
 configure_ports() {
   header
   echo -e " ${CYAN}Configuration des ports (Tous sur 443 recommandé)${NC}\n"
@@ -278,6 +312,11 @@ configure_reality() {
 }
 
 save_config() {
+  # Vérification des variables essentielles
+  if [ -z "$DOMAIN" ]; then
+    error "Impossible de sauvegarder: domaine non configuré"
+    return 1
+  fi
   # Préparation des configurations
   local common_tls_settings="\"tlsSettings\": {\"certificates\": [{\"certificateFile\": \"/etc/letsencrypt/live/$DOMAIN/fullchain.pem\", \"keyFile\": \"/etc/letsencrypt/live/$DOMAIN/privkey.pem\"}]}"
   
@@ -596,10 +635,16 @@ install_all() {
     read -r DOMAIN
   done
 
-  while [[ ! "$EMAIL" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$ ]]; do
-    input "Entrez votre email valide (pour Certbot) : "
-    read -r EMAIL
-  done
+    # Configuration du domaine
+    if [ -z "$DOMAIN" ]; then
+      configure_domain || return 1
+    fi
+    
+    # Vérification que le domaine est bien défini
+    if [ -z "$DOMAIN" ]; then
+      error "Le domaine n'est pas configuré"
+      return 1
+    fi
 
   # Étape 10: Configuration Nginx et certificat
   echo -n " [8/9] Configuration du certificat TLS..."
