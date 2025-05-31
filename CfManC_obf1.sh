@@ -69,30 +69,15 @@ header() {
   echo -e "${BLUE}╔══════════════════════════════════════════════╗"
   echo -e "║   ${CYAN}Xray Manager Pro ${BLUE}- ${GREEN}DjahNoDead 👽${BLUE}     ║"
   echo -e "╚══════════════════════════════════════════════╝${NC}"
+  
+  # Charger la configuration si elle existe
+  if [ -f "xray_config.sh" ]; then
+    source xray_config.sh
+  fi
+  
   echo -e " ${CYAN}Domaine: ${YELLOW}${DOMAIN:-Non configuré}${NC}"
   echo -e " ${CYAN}Reality: ${YELLOW}$([ -n "$REALITY_PUBLIC_KEY" ] && echo "Activé" || echo "Désactivé")${NC}"
   echo
-}
-
-status() {
-  echo -e " ${GREEN}✓${NC} $1"
-}
-
-error() {
-  echo -e " ${RED}✗${NC} $1" >&2
-}
-
-warning() {
-  echo -e " ${YELLOW}⚠${NC} $1"
-}
-
-input() {
-  echo -e " ${MAGENTA}?${NC} $1"
-}
-
-pause() {
-  echo
-  read -rp " Appuyez sur ${CYAN}[Entrée]${NC} pour continuer..." dummy
 }
 
 # ============================================
@@ -733,6 +718,16 @@ EOF
   pause
 }
 
+# Fin d'installation
+header
+status "Installation terminée avec succès"
+echo -e " ${CYAN}Un utilisateur par protocole a été créé${NC}"
+
+# Afficher directement les configurations
+echo -e "\n${YELLOW}=== CONFIGURATIONS GÉNÉRÉES ===${NC}"
+generate_links | tee -a config_clients.txt
+pause
+
 # ============================================
 # FONCTIONS DE GESTION DES UTILISATEURS
 # ============================================
@@ -964,21 +959,11 @@ generate_links() {
     return 1
   fi
 
-  # Vérifier si le fichier existe et le supprimer
-  [ -f "config_clients.txt" ] && rm -f "config_clients.txt"
-
-  # Fonction pour ajouter des configurations au fichier
-  add_config() {
-    local title=$1
-    local config=$2
-    if [ -n "$config" ]; then
-      echo -e "\n=== $title ===" >> config_clients.txt
-      echo -e "$config" >> config_clients.txt
-    fi
-  }
-
-  # En-tête du fichier
-  cat > config_clients.txt <<EOF
+  # Création d'un fichier temporaire
+  local temp_file=$(mktemp)
+  
+  # En-tête
+  cat > "$temp_file" <<EOF
 ===========================================
 === Xray Client Configurations - DjahNoDead 👽 ===
 === Généré le: $(date) ===
@@ -988,120 +973,58 @@ generate_links() {
 ===========================================
 EOF
 
-  # VLESS WS
-  if [ -n "${USERS[VLESS_WS]}" ]; then
-    config=""
-    for uuid in ${USERS[VLESS_WS]}; do
-      config+="vless://$uuid@$DOMAIN:443?encryption=none&security=tls&type=ws&path=%2Fvlessws#$DOMAIN-VLESS-WS\n"
-    done
-    add_config "VLESS WS (Recommandé)" "$config"
-  fi
+  # Fonction pour ajouter des configurations
+  add_config() {
+    local title=$1
+    local config=$2
+    if [ -n "$config" ]; then
+      echo -e "\n=== $title ===" >> "$temp_file"
+      echo -e "$config" >> "$temp_file"
+    fi
+  }
 
-  # VLESS TCP
-  if [ -n "${USERS[VLESS_TCP]}" ]; then
-    config=""
-    for uuid in ${USERS[VLESS_TCP]}; do
-      config+="vless://$uuid@$DOMAIN:443?security=tls&encryption=none&type=tcp#$DOMAIN-VLESS-TCP\n"
-    done
-    add_config "VLESS TCP" "$config"
-  fi
+  # Génération des configurations pour tous les protocoles
+  local configs=(
+    "VLESS WS" "vless://${USERS[VLESS_WS]}@$DOMAIN:443?encryption=none&security=tls&type=ws&path=%2Fvlessws#$DOMAIN-VLESS-WS"
+    "VLESS TCP" "vless://${USERS[VLESS_TCP]}@$DOMAIN:443?security=tls&encryption=none&type=tcp#$DOMAIN-VLESS-TCP"
+    "VLESS gRPC" "vless://${USERS[VLESS_GRPC]}@$DOMAIN:443?type=grpc&serviceName=vlessgrpc&security=tls#$DOMAIN-VLESS-gRPC"
+    "VMESS WS" "vmess://$(jq -n \
+      --arg uuid "${USERS[VMESS_WS]}" \
+      --arg host "$DOMAIN" \
+      '{
+        v: "2", ps: "vmess-ws", add: $host,
+        port: "443", id: $uuid, aid: "0",
+        net: "ws", type: "none", host: $host,
+        path: "/vmessws", tls: "tls"
+      }' | base64 -w 0)"
+    "TROJAN WS" "trojan://${USERS[TROJAN_WS]}@$DOMAIN:443?security=tls&type=ws&path=%2Ftrojanws#$DOMAIN-TROJAN-WS"
+    "SHADOWSOCKS" "ss://$(echo -n "aes-128-gcm:${USERS[SHADOWSOCKS]}" | base64 -w 0)@$DOMAIN:443#$DOMAIN-SS"
+    "REALITY TCP" "vless://${USERS[REALITY]}@$DOMAIN:443?type=tcp&security=reality&pbk=$REALITY_PUBLIC_KEY&sid=${REALITY_SHORT_IDS[0]}&fp=chrome#${DOMAIN}-REALITY-TCP"
+  )
 
-  # VLESS gRPC
-  if [ -n "${USERS[VLESS_GRPC]}" ]; then
-    config=""
-    for uuid in ${USERS[VLESS_GRPC]}; do
-      config+="vless://$uuid@$DOMAIN:443?type=grpc&serviceName=vlessgrpc&security=tls#$DOMAIN-VLESS-gRPC\n"
-    done
-    add_config "VLESS gRPC" "$config"
-  fi
-
-  # VMESS WS
-  if [ -n "${USERS[VMESS_WS]}" ]; then
-    config=""
-    for uuid in ${USERS[VMESS_WS]}; do
-      vmess_config=$(jq -n \
-        --arg uuid "$uuid" \
-        --arg host "$DOMAIN" \
-        --arg port "443" \
-        '{
-          v: "2", ps: "vmess-ws", add: $host,
-          port: $port, id: $uuid, aid: "0",
-          net: "ws", type: "none", host: $host,
-          path: "/vmessws", tls: "tls"
-        }')
-      config+="vmess://$(echo "$vmess_config" | base64 -w 0)\n"
-    done
-    add_config "VMESS WS" "$config"
-  fi
-
-  # TROJAN WS
-  if [ -n "${USERS[TROJAN_WS]}" ]; then
-    config=""
-    for pwd in ${USERS[TROJAN_WS]}; do
-      config+="trojan://$pwd@$DOMAIN:443?security=tls&type=ws&path=%2Ftrojanws#$DOMAIN-TROJAN-WS\n"
-    done
-    add_config "TROJAN WS" "$config"
-  fi
-
-  # SHADOWSOCKS
-  if [ -n "${USERS[SHADOWSOCKS]}" ]; then
-    config=""
-    for pwd in ${USERS[SHADOWSOCKS]}; do
-      config+="ss://$(echo -n "aes-128-gcm:$pwd" | base64 -w 0)@$DOMAIN:443#$DOMAIN-SS\n"
-    done
-    add_config "SHADOWSOCKS" "$config"
-  fi
-
-  # REALITY TCP
-  if [ -n "${USERS[REALITY]}" ]; then
-    config=""
-    for uuid in ${USERS[REALITY]}; do
-      config+="vless://$uuid@$DOMAIN:443?type=tcp&security=reality&pbk=$REALITY_PUBLIC_KEY&sid=${REALITY_SHORT_IDS[0]}&fp=chrome#${DOMAIN}-REALITY-TCP\n"
-    done
-    add_config "REALITY TCP" "$config"
-  fi
-
-  # REALITY UDP
-  if [ -n "${USERS[REALITY_UDP]}" ]; then
-    config=""
-    for uuid in ${USERS[REALITY_UDP]}; do
-      config+="vless://$uuid@$DOMAIN:443?type=udp&security=reality&pbk=$REALITY_PUBLIC_KEY&sid=${REALITY_SHORT_IDS[0]}&fp=chrome#${DOMAIN}-REALITY-UDP\n"
-    done
-    add_config "REALITY UDP" "$config"
-  fi
-
-  # VLESS HTTP/2
-  if [ -n "${USERS[VLESS_H2]}" ]; then
-    config=""
-    for uuid in ${USERS[VLESS_H2]}; do
-      config+="vless://$uuid@$DOMAIN:443?type=http&security=tls&path=%2Fvlessh2#$DOMAIN-VLESS-H2\n"
-    done
-    add_config "VLESS HTTP/2" "$config"
-  fi
-
-  # VLESS HTTP Upgrade
-  if [ -n "${USERS[VLESS_H2_UPGRADE]}" ]; then
-    config=""
-    for uuid in ${USERS[VLESS_H2_UPGRADE]}; do
-      config+="vless://$uuid@$DOMAIN:443?type=http&security=none&path=%2Fhttpupgrade#$DOMAIN-VLESS-HTTP-UPGRADE\n"
-    done
-    add_config "VLESS HTTP Upgrade" "$config"
-  fi
+  # Ajout des configurations valides
+  for ((i=0; i<${#configs[@]}; i+=2)); do
+    if [ -n "${USERS[${configs[i]// /_}]}" ]; then
+      add_config "${configs[i]}" "${configs[i+1]}"
+    fi
+  done
 
   # Pied de page
-  echo -e "\n===========================================" >> config_clients.txt
-  echo -e "=== FIN DES CONFIGURATIONS ===" >> config_clients.txt
-  echo -e "\n=== INSTRUCTIONS ===" >> config_clients.txt
-  echo -e "- Reality: Utiliser Xray v1.8.0+ ou Shadowrocket" >> config_clients.txt
-  echo -e "- gRPC: Nécessite un client supportant gRPC" >> config_clients.txt
-  echo -e "- HTTP Upgrade: Compatible avec Cloudflare CDN" >> config_clients.txt
+  echo -e "\n===========================================" >> "$temp_file"
+  echo -e "=== FIN DES CONFIGURATIONS ===" >> "$temp_file"
+  echo -e "\n=== INSTRUCTIONS ===" >> "$temp_file"
+  echo -e "- Reality: Utiliser Xray v1.8.0+ ou Shadowrocket" >> "$temp_file"
+  echo -e "- gRPC: Nécessite un client supportant gRPC" >> "$temp_file"
 
-  # Affichage du résultat
-  status "Configurations sauvegardées dans ${YELLOW}config_clients.txt${NC}"
+  # Affichage à l'écran et sauvegarde
+  cat "$temp_file" > "config_clients.txt"
   echo -e "\n${CYAN}=== CONFIGURATIONS GÉNÉRÉES ===${NC}"
-  cat config_clients.txt
+  cat "$temp_file"
   
-  echo -e "\n ${CYAN}Conseil:${NC} Utilisez ${YELLOW}cat config_clients.txt | qrencode -t UTF8${NC} pour générer des QR codes"
+  echo -e "\n ${CYAN}Conseil:${NC} Les configurations ont été sauvegardées dans ${YELLOW}config_clients.txt${NC}"
+  echo -e " Utilisez ${YELLOW}cat config_clients.txt | qrencode -t UTF8${NC} pour générer des QR codes"
+  
+  rm "$temp_file"
   pause
 }
 
