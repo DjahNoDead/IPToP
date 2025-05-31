@@ -64,15 +64,6 @@ declare -a REALITY_SHORT_IDS=()
 # FONCTIONS D'AFFICHAGE
 # ============================================
 
-# Définir la fonction input() si elle n'existe pas
-if ! declare -f input >/dev/null; then
-  input() {
-    echo -e " ${MAGENTA}?${NC} $1"
-    read -r
-  }
-fi
-
-# Fonction header() corrigée
 header() {
   clear
   echo -e "${BLUE}╔══════════════════════════════════════════════╗"
@@ -81,28 +72,12 @@ header() {
   
   # Charger la configuration si elle existe
   if [ -f "xray_config.sh" ]; then
-    # Sauvegarde des variables actuelles
-    local old_domain="$DOMAIN"
-    local old_reality_pub="$REALITY_PUBLIC_KEY"
-    
-    # Chargement de la configuration
-    source xray_config.sh 2>/dev/null
-    
-    # Restauration si le chargement échoue
-    DOMAIN="${DOMAIN:-$old_domain}"
-    REALITY_PUBLIC_KEY="${REALITY_PUBLIC_KEY:-$old_reality_pub}"
+    source xray_config.sh
   fi
   
   echo -e " ${CYAN}Domaine: ${YELLOW}${DOMAIN:-Non configuré}${NC}"
   echo -e " ${CYAN}Reality: ${YELLOW}$([ -n "$REALITY_PUBLIC_KEY" ] && echo "Activé" || echo "Désactivé")${NC}"
   echo
-}
-
-# Fonction confirm() pour les confirmations
-confirm() {
-  echo -e " ${YELLOW}⚠${NC} $1"
-  read -rp " Voulez-vous continuer ? (o/N) " response
-  [[ "$response" =~ ^[oOyY]$ ]] && return 0 || return 1
 }
 
 # ============================================
@@ -233,40 +208,6 @@ EOF
 # FONCTIONS DE CONFIGURATION
 # ============================================
 
-configure_domain() {
-  header
-  echo -e " ${CYAN}Configuration du domaine${NC}\n"
-  
-  # Demander le domaine jusqu'à ce qu'il soit valide
-  while :; do
-    read -rp " Entrez le nom de domaine complet (ex: proxy.votresite.com) : " DOMAIN
-    DOMAIN=$(echo "$DOMAIN" | tr -d '[:space:]')  # Supprimer les espaces
-    
-    # Validation basique du domaine
-    if [[ -z "$DOMAIN" ]]; then
-      error "Le domaine ne peut pas être vide"
-    elif ! [[ "$DOMAIN" =~ ^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$ ]]; then
-      error "Format de domaine invalide"
-    else
-      break  # Sortir de la boucle si le domaine est valide
-    fi
-  done
-  
-  # Demander l'email pour Certbot
-  while :; do
-    read -rp " Entrez votre email pour les certificats SSL : " EMAIL
-    if [[ "$EMAIL" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$ ]]; then
-      break
-    else
-      error "Email invalide, veuillez réessayer"
-    fi
-  done
-
-  # Sauvegarder immédiatement
-  save_config && status "Domaine configuré avec succès" || error "Erreur de sauvegarde"
-  pause
-}
-
 configure_ports() {
   header
   echo -e " ${CYAN}Configuration des ports (Tous sur 443 recommandé)${NC}\n"
@@ -312,11 +253,6 @@ configure_reality() {
 }
 
 save_config() {
-  # Vérification des variables essentielles
-  if [ -z "$DOMAIN" ]; then
-    error "Impossible de sauvegarder: domaine non configuré"
-    return 1
-  fi
   # Préparation des configurations
   local common_tls_settings="\"tlsSettings\": {\"certificates\": [{\"certificateFile\": \"/etc/letsencrypt/live/$DOMAIN/fullchain.pem\", \"keyFile\": \"/etc/letsencrypt/live/$DOMAIN/privkey.pem\"}]}"
   
@@ -549,9 +485,9 @@ install_all() {
   echo -e " ${CYAN}Installation complète (Multi-protocole sur 443)${NC}\n"
   
   if [ -f "$CONFIG_PATH" ]; then
-    if ! confirm "Xray semble déjà être installé. Voulez-vous vraiment continuer ?"; then
-      return
-    fi
+    warning "Xray semble déjà être installé"
+    read -rp " Voulez-vous vraiment continuer ? (o/N) " confirm
+    [[ ! "$confirm" =~ ^[oO]$ ]] && return
   fi
 
   # Étape 1: Mise à jour système
@@ -635,16 +571,10 @@ install_all() {
     read -r DOMAIN
   done
 
-    # Configuration du domaine
-    if [ -z "$DOMAIN" ]; then
-      configure_domain || return 1
-    fi
-    
-    # Vérification que le domaine est bien défini
-    if [ -z "$DOMAIN" ]; then
-      error "Le domaine n'est pas configuré"
-      return 1
-    fi
+  while [[ ! "$EMAIL" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$ ]]; do
+    input "Entrez votre email valide (pour Certbot) : "
+    read -r EMAIL
+  done
 
   # Étape 10: Configuration Nginx et certificat
   echo -n " [8/9] Configuration du certificat TLS..."
@@ -1023,85 +953,78 @@ remove_user() {
 
 generate_links() {
   header
-  
-  # Vérification du domaine
   if [ -z "$DOMAIN" ]; then
-    error "Domaine non configuré - Impossible de générer les liens"
+    error "Domaine non configuré"
     pause
     return 1
   fi
 
-  echo -e "\n${CYAN}=== CONFIGURATIONS GÉNÉRÉES ===${NC}"
+  # Création d'un fichier temporaire
+  local temp_file=$(mktemp)
   
-  # Liste de tous les protocoles à afficher
-  local protocols=(
-    "VLESS_WS:/vlessws"
-    "VLESS_TCP:"
-    "VLESS_GRPC:/vlessgrpc"
-    "VMESS_WS:/vmessws"
-    "TROJAN_WS:/trojanws"
-    "SHADOWSOCKS:"
-    "REALITY:"
+  # En-tête
+  cat > "$temp_file" <<EOF
+===========================================
+=== Xray Client Configurations - DjahNoDead 👽 ===
+=== Généré le: $(date) ===
+=== Domaine: $DOMAIN ===
+=== Reality Public Key: $REALITY_PUBLIC_KEY ===
+=== Short IDs: ${REALITY_SHORT_IDS[*]} ===
+===========================================
+EOF
+
+  # Fonction pour ajouter des configurations
+  add_config() {
+    local title=$1
+    local config=$2
+    if [ -n "$config" ]; then
+      echo -e "\n=== $title ===" >> "$temp_file"
+      echo -e "$config" >> "$temp_file"
+    fi
+  }
+
+  # Génération des configurations pour tous les protocoles
+  local configs=(
+    "VLESS WS" "vless://${USERS[VLESS_WS]}@$DOMAIN:443?encryption=none&security=tls&type=ws&path=%2Fvlessws#$DOMAIN-VLESS-WS"
+    "VLESS TCP" "vless://${USERS[VLESS_TCP]}@$DOMAIN:443?security=tls&encryption=none&type=tcp#$DOMAIN-VLESS-TCP"
+    "VLESS gRPC" "vless://${USERS[VLESS_GRPC]}@$DOMAIN:443?type=grpc&serviceName=vlessgrpc&security=tls#$DOMAIN-VLESS-gRPC"
+    "VMESS WS" "vmess://$(jq -n \
+      --arg uuid "${USERS[VMESS_WS]}" \
+      --arg host "$DOMAIN" \
+      '{
+        v: "2", ps: "vmess-ws", add: $host,
+        port: "443", id: $uuid, aid: "0",
+        net: "ws", type: "none", host: $host,
+        path: "/vmessws", tls: "tls"
+      }' | base64 -w 0)"
+    "TROJAN WS" "trojan://${USERS[TROJAN_WS]}@$DOMAIN:443?security=tls&type=ws&path=%2Ftrojanws#$DOMAIN-TROJAN-WS"
+    "SHADOWSOCKS" "ss://$(echo -n "aes-128-gcm:${USERS[SHADOWSOCKS]}" | base64 -w 0)@$DOMAIN:443#$DOMAIN-SS"
+    "REALITY TCP" "vless://${USERS[REALITY]}@$DOMAIN:443?type=tcp&security=reality&pbk=$REALITY_PUBLIC_KEY&sid=${REALITY_SHORT_IDS[0]}&fp=chrome#${DOMAIN}-REALITY-TCP"
   )
 
-  for proto_path in "${protocols[@]}"; do
-    local proto=${proto_path%:*}
-    local path=${proto_path#*:}
-    local users=${USERS[$proto]}
-    
-    if [ -n "$users" ]; then
-      echo -e "\n${YELLOW}=== $proto ===${NC}"
-      
-      if [[ "$proto" == "SHADOWSOCKS" ]]; then
-        for pwd in $users; do
-          echo "ss://$(echo -n "aes-128-gcm:$pwd" | base64)@$DOMAIN:443#$DOMAIN-SS"
-        done
-      elif [[ "$proto" == "REALITY" ]]; then
-        for uuid in $users; do
-          echo "vless://$uuid@$DOMAIN:443?type=tcp&security=reality&pbk=$REALITY_PUBLIC_KEY&sid=${REALITY_SHORT_IDS[0]}#$DOMAIN-REALITY"
-        done
-      elif [[ "$proto" == "VLESS_TCP" ]]; then
-        for uuid in $users; do
-          echo "vless://$uuid@$DOMAIN:443?security=tls&flow=xtls-rprx-vision#$DOMAIN-VLESS-TCP"
-        done
-      else
-        for user in $users; do
-          if [[ "$proto" == "VMESS_WS" ]]; then
-            local vmess_json=$(jq -n \
-              --arg uuid "$user" \
-              --arg host "$DOMAIN" \
-              '{
-                v: "2", ps: "vmess-ws", add: $host,
-                port: "443", id: $uuid, aid: "0",
-                net: "ws", type: "none", host: $host,
-                path: "/vmessws", tls: "tls"
-              }')
-            echo "vmess://$(echo "$vmess_json" | base64 -w 0)"
-          else
-            echo "vless://$user@$DOMAIN:443?type=ws&security=tls&path=%2F${path#/}#$DOMAIN-$proto"
-          fi
-        done
-      fi
+  # Ajout des configurations valides
+  for ((i=0; i<${#configs[@]}; i+=2)); do
+    if [ -n "${USERS[${configs[i]// /_}]}" ]; then
+      add_config "${configs[i]}" "${configs[i+1]}"
     fi
   done
 
-  echo -e "\n${CYAN}=== INSTRUCTIONS ===${NC}"
-  echo "- Reality: Nécessite Xray v1.8.0+ ou Shadowrocket"
-  echo "- gRPC: Client compatible requis"
-  echo "- WS: Compatible avec la plupart des clients"
-  
-  # Sauvegarde dans un fichier
-  {
-    echo "=== Configurations Xray ==="
-    echo "Généré le: $(date)"
-    echo "Domaine: $DOMAIN"
-    echo "Reality Key: $REALITY_PUBLIC_KEY"
-    echo "Short IDs: ${REALITY_SHORT_IDS[*]}"
-    echo
-    generate_links
-  } > config_clients.txt
+  # Pied de page
+  echo -e "\n===========================================" >> "$temp_file"
+  echo -e "=== FIN DES CONFIGURATIONS ===" >> "$temp_file"
+  echo -e "\n=== INSTRUCTIONS ===" >> "$temp_file"
+  echo -e "- Reality: Utiliser Xray v1.8.0+ ou Shadowrocket" >> "$temp_file"
+  echo -e "- gRPC: Nécessite un client supportant gRPC" >> "$temp_file"
 
-  echo -e "\n${GREEN}✓${NC} Configurations sauvegardées dans ${YELLOW}config_clients.txt${NC}"
+  # Affichage à l'écran et sauvegarde
+  cat "$temp_file" > "config_clients.txt"
+  echo -e "\n${CYAN}=== CONFIGURATIONS GÉNÉRÉES ===${NC}"
+  cat "$temp_file"
+  
+  echo -e "\n ${CYAN}Conseil:${NC} Les configurations ont été sauvegardées dans ${YELLOW}config_clients.txt${NC}"
+  echo -e " Utilisez ${YELLOW}cat config_clients.txt | qrencode -t UTF8${NC} pour générer des QR codes"
+  
+  rm "$temp_file"
   pause
 }
 
