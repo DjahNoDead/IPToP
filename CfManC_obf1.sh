@@ -271,167 +271,37 @@ save_config() {
   # Préparation des configurations
   local common_tls_settings="\"tlsSettings\": {\"certificates\": [{\"certificateFile\": \"/etc/letsencrypt/live/$DOMAIN/fullchain.pem\", \"keyFile\": \"/etc/letsencrypt/live/$DOMAIN/privkey.pem\"}]}"
   
-  cat > "$CONFIG_PATH" <<EOF
-{
-  "log": {"loglevel": "warning"},
-  "inbounds": [
-    {
-      "port": 443,
-      "protocol": "vless",
-      "settings": {"clients": [$(for uuid in ${USERS[VLESS_WS]}; do echo "{\"id\":\"$uuid\",\"flow\":\"xtls-rprx-vision\",\"email\":\"user@vless-ws\"},"; done | sed '$ s/,$//')], "decryption": "none"},
-      "streamSettings": {
-        "network": "ws",
-        "security": "tls",
-        $common_tls_settings,
-        "wsSettings": {"path": "/vlessws"}
-      }
-    },
-    {
-      "port": 443,
-      "protocol": "vmess",
-      "settings": {"clients": [$(for uuid in ${USERS[VMESS_WS]}; do echo "{\"id\":\"$uuid\",\"alterId\":0,\"email\":\"user@vmess-ws\"},"; done | sed '$ s/,$//')]},
-      "streamSettings": {
-        "network": "ws",
-        "security": "tls",
-        $common_tls_settings,
-        "wsSettings": {"path": "/vmessws"}
-      }
-    },
-    {
-      "port": 443,
-      "protocol": "trojan",
-      "settings": {"clients": [$(for pwd in ${USERS[TROJAN_WS]}; do echo "{\"password\":\"$pwd\",\"email\":\"user@trojan-ws\"},"; done | sed '$ s/,$//')]},
-      "streamSettings": {
-        "network": "ws",
-        "security": "tls",
-        $common_tls_settings,
-        "wsSettings": {"path": "/trojanws"}
-      }
-    },
-    {
-      "port": 443,
-      "protocol": "vless",
-      "settings": {"clients": [$(for uuid in ${USERS[VLESS_GRPC]}; do echo "{\"id\":\"$uuid\",\"flow\":\"\",\"email\":\"user@vless-grpc\"},"; done | sed '$ s/,$//')], "decryption": "none"},
-      "streamSettings": {
-        "network": "grpc",
-        "security": "tls",
-        $common_tls_settings,
-        "grpcSettings": {"serviceName": "vlessgrpc"}
-      }
-    },
-    {
-      "port": 443,
-      "protocol": "vless",
-      "settings": {"clients": [$(for uuid in ${USERS[REALITY]}; do echo "{\"id\":\"$uuid\",\"flow\":\"xtls-rprx-vision\",\"email\":\"user@reality\"},"; done | sed '$ s/,$//')], "decryption": "none"},
-      "streamSettings": {
-        "network": "tcp",
-        "security": "reality",
-        "realitySettings": {
-          "show": false,
-          "dest": "$DOMAIN:443",
-          "xver": 1,
-          "serverNames": ["$DOMAIN"],
-          "privateKey": "$REALITY_PRIVATE_KEY",
-          "shortIds": [$(printf "\"%s\"," "${REALITY_SHORT_IDS[@]}" | sed 's/,$//')]
-        }
-      }
-    }
-  ],
-  "outbounds": [
-    {"protocol": "freedom"},
-    {"protocol": "blackhole", "tag": "block"}
-  ]
-}
-EOF
+  # Génération des configurations clients
+  local vless_ws_clients=""
+  local vmess_ws_clients=""
+  local trojan_ws_clients=""
+  local vless_grpc_clients=""
+  local reality_clients=""
 
-  # Vérification et sauvegarde
-  if jq empty "$CONFIG_PATH" &>/dev/null; then
-    {
-      declare -p PORTS
-      declare -p USERS
-      declare -p REALITY_PRIVATE_KEY
-      declare -p REALITY_PUBLIC_KEY
-      declare -p REALITY_SHORT_IDS
-    } > xray_config.sh
-    status "Configuration 443 multi-protocoles sauvegardée"
-    return 0
-  else
-    error "Erreur dans la configuration JSON"
-    return 1
-  fi
-}
-
-  # Générer les configurations clients pour chaque protocole
-  for proto in "${!USERS[@]}"; do
-    case $proto in
-      VLESS_WS)
-        for uuid in ${USERS[VLESS_WS]}; do
-          vless_ws_clients+="{\"id\":\"$uuid\",\"flow\":\"xtls-rprx-vision\",\"email\":\"user@vless-ws\"},"
-        done
-        vless_ws_clients=${vless_ws_clients%,}
-        ;;
-      VLESS_TCP)
-        for uuid in ${USERS[VLESS_TCP]}; do
-          vless_tcp_clients+="{\"id\":\"$uuid\",\"flow\":\"xtls-rprx-vision\",\"email\":\"user@vless-tcp\"},"
-        done
-        vless_tcp_clients=${vless_tcp_clients%,}
-        ;;
-      VLESS_GRPC)
-        for uuid in ${USERS[VLESS_GRPC]}; do
-          vless_grpc_clients+="{\"id\":\"$uuid\",\"flow\":\"\",\"email\":\"user@vless-grpc\"},"
-        done
-        vless_grpc_clients=${vless_grpc_clients%,}
-        ;;
-      VLESS_H2)
-        for uuid in ${USERS[VLESS_H2]}; do
-          vless_h2_clients+="{\"id\":\"$uuid\",\"flow\":\"\",\"email\":\"user@vless-h2\"},"
-        done
-        vless_h2_clients=${vless_h2_clients%,}
-        ;;
-      VMESS_WS)
-        for uuid in ${USERS[VMESS_WS]}; do
-          vmess_ws_clients+="{\"id\":\"$uuid\",\"alterId\":0,\"email\":\"user@vmess-ws\"},"
-        done
-        vmess_ws_clients=${vmess_ws_clients%,}
-        ;;
-      VMESS_TCP)
-        for uuid in ${USERS[VMESS_TCP]}; do
-          vmess_tcp_clients+="{\"id\":\"$uuid\",\"alterId\":0,\"email\":\"user@vmess-tcp\"},"
-        done
-        vmess_tcp_clients=${vmess_tcp_clients%,}
-        ;;
-      TROJAN_WS)
-        for pwd in ${USERS[TROJAN_WS]}; do
-          trojan_ws_clients+="{\"password\":\"$pwd\",\"email\":\"user@trojan-ws\"},"
-        done
-        trojan_ws_clients=${trojan_ws_clients%,}
-        ;;
-      TROJAN_TCP)
-        for pwd in ${USERS[TROJAN_TCP]}; do
-          trojan_tcp_clients+="{\"password\":\"$pwd\",\"flow\":\"xtls-rprx-direct\",\"email\":\"user@trojan-tcp\"},"
-        done
-        trojan_tcp_clients=${trojan_tcp_clients%,}
-        ;;
-      SHADOWSOCKS)
-        for pwd in ${USERS[SHADOWSOCKS]}; do
-          ss_clients+="{\"password\":\"$pwd\",\"method\":\"aes-128-gcm\",\"email\":\"user@ss\"},"
-        done
-        ss_clients=${ss_clients%,}
-        ;;
-      REALITY)
-        for uuid in ${USERS[REALITY]}; do
-          reality_clients+="{\"id\":\"$uuid\",\"flow\":\"xtls-rprx-vision\",\"email\":\"user@reality\"},"
-        done
-        reality_clients=${reality_clients%,}
-        ;;
-      REALITY_UDP)
-        for uuid in ${USERS[REALITY_UDP]}; do
-          reality_udp_clients+="{\"id\":\"$uuid\",\"flow\":\"\",\"email\":\"user@reality-udp\"},"
-        done
-        reality_udp_clients=${reality_udp_clients%,}
-        ;;
-    esac
+  for uuid in ${USERS[VLESS_WS]}; do
+    vless_ws_clients+="{\"id\":\"$uuid\",\"flow\":\"xtls-rprx-vision\",\"email\":\"user@vless-ws\"},"
   done
+  vless_ws_clients=${vless_ws_clients%,}
+
+  for uuid in ${USERS[VMESS_WS]}; do
+    vmess_ws_clients+="{\"id\":\"$uuid\",\"alterId\":0,\"email\":\"user@vmess-ws\"},"
+  done
+  vmess_ws_clients=${vmess_ws_clients%,}
+
+  for pwd in ${USERS[TROJAN_WS]}; do
+    trojan_ws_clients+="{\"password\":\"$pwd\",\"email\":\"user@trojan-ws\"},"
+  done
+  trojan_ws_clients=${trojan_ws_clients%,}
+
+  for uuid in ${USERS[VLESS_GRPC]}; do
+    vless_grpc_clients+="{\"id\":\"$uuid\",\"flow\":\"\",\"email\":\"user@vless-grpc\"},"
+  done
+  vless_grpc_clients=${vless_grpc_clients%,}
+
+  for uuid in ${USERS[REALITY]}; do
+    reality_clients+="{\"id\":\"$uuid\",\"flow\":\"xtls-rprx-vision\",\"email\":\"user@reality\"},"
+  done
+  reality_clients=${reality_clients%,}
 
   # Écriture du fichier de configuration
   cat > "$CONFIG_PATH" <<EOF
@@ -439,122 +309,55 @@ EOF
   "log": {"loglevel": "warning"},
   "inbounds": [
     {
-      "port": ${PORTS[VLESS_WS]},
+      "port": 443,
       "protocol": "vless",
       "settings": {"clients": [$vless_ws_clients], "decryption": "none"},
       "streamSettings": {
         "network": "ws",
         "security": "tls",
-        "tlsSettings": {"certificates": [{"certificateFile": "/etc/letsencrypt/live/$DOMAIN/fullchain.pem", "keyFile": "/etc/letsencrypt/live/$DOMAIN/privkey.pem"}]},
+        $common_tls_settings,
         "wsSettings": {"path": "/vlessws"}
       }
     },
     {
-      "port": ${PORTS[VLESS_TCP]},
-      "protocol": "vless",
-      "settings": {"clients": [$vless_tcp_clients], "decryption": "none"},
-      "streamSettings": {
-        "network": "tcp",
-        "security": "tls",
-        "tlsSettings": {"certificates": [{"certificateFile": "/etc/letsencrypt/live/$DOMAIN/fullchain.pem", "keyFile": "/etc/letsencrypt/live/$DOMAIN/privkey.pem"}]}
-      }
-    },
-    {
-      "port": ${PORTS[VLESS_GRPC]},
-      "protocol": "vless",
-      "settings": {"clients": [$vless_grpc_clients], "decryption": "none"},
-      "streamSettings": {
-        "network": "grpc",
-        "security": "tls",
-        "tlsSettings": {"certificates": [{"certificateFile": "/etc/letsencrypt/live/$DOMAIN/fullchain.pem", "keyFile": "/etc/letsencrypt/live/$DOMAIN/privkey.pem"}]},
-        "grpcSettings": {"serviceName": "vlessgrpc"}
-      }
-    },
-    {
-      "port": ${PORTS[VLESS_H2]},
-      "protocol": "vless",
-      "settings": {"clients": [$vless_h2_clients], "decryption": "none"},
-      "streamSettings": {
-        "network": "h2",
-        "security": "tls",
-        "tlsSettings": {"certificates": [{"certificateFile": "/etc/letsencrypt/live/$DOMAIN/fullchain.pem", "keyFile": "/etc/letsencrypt/live/$DOMAIN/privkey.pem"}]},
-        "httpSettings": {"host": ["$DOMAIN"], "path": "/vlessh2"}
-      }
-    },
-    {
-      "port": ${PORTS[VMESS_WS]},
+      "port": 443,
       "protocol": "vmess",
       "settings": {"clients": [$vmess_ws_clients]},
       "streamSettings": {
         "network": "ws",
         "security": "tls",
-        "tlsSettings": {"certificates": [{"certificateFile": "/etc/letsencrypt/live/$DOMAIN/fullchain.pem", "keyFile": "/etc/letsencrypt/live/$DOMAIN/privkey.pem"}]},
+        $common_tls_settings,
         "wsSettings": {"path": "/vmessws"}
       }
     },
     {
-      "port": ${PORTS[VMESS_TCP]},
-      "protocol": "vmess",
-      "settings": {"clients": [$vmess_tcp_clients]},
-      "streamSettings": {
-        "network": "tcp",
-        "security": "tls",
-        "tlsSettings": {"certificates": [{"certificateFile": "/etc/letsencrypt/live/$DOMAIN/fullchain.pem", "keyFile": "/etc/letsencrypt/live/$DOMAIN/privkey.pem"}]}
-      }
-    },
-    {
-      "port": ${PORTS[TROJAN_WS]},
+      "port": 443,
       "protocol": "trojan",
       "settings": {"clients": [$trojan_ws_clients]},
       "streamSettings": {
         "network": "ws",
         "security": "tls",
-        "tlsSettings": {"certificates": [{"certificateFile": "/etc/letsencrypt/live/$DOMAIN/fullchain.pem", "keyFile": "/etc/letsencrypt/live/$DOMAIN/privkey.pem"}]},
+        $common_tls_settings,
         "wsSettings": {"path": "/trojanws"}
       }
     },
     {
-      "port": ${PORTS[TROJAN_TCP]},
-      "protocol": "trojan",
-      "settings": {"clients": [$trojan_tcp_clients]},
+      "port": 443,
+      "protocol": "vless",
+      "settings": {"clients": [$vless_grpc_clients], "decryption": "none"},
       "streamSettings": {
-        "network": "tcp",
+        "network": "grpc",
         "security": "tls",
-        "tlsSettings": {"certificates": [{"certificateFile": "/etc/letsencrypt/live/$DOMAIN/fullchain.pem", "keyFile": "/etc/letsencrypt/live/$DOMAIN/privkey.pem"}]}
+        $common_tls_settings,
+        "grpcSettings": {"serviceName": "vlessgrpc"}
       }
     },
     {
-      "port": ${PORTS[SHADOWSOCKS]},
-      "protocol": "shadowsocks",
-      "settings": {"clients": [$ss_clients], "method": "aes-128-gcm"},
-      "streamSettings": {"network": "tcp"}
-    },
-    {
-      "port": ${PORTS[REALITY]},
+      "port": 443,
       "protocol": "vless",
       "settings": {"clients": [$reality_clients], "decryption": "none"},
       "streamSettings": {
         "network": "tcp",
-        "security": "reality",
-        "realitySettings": {
-          "show": false,
-          "dest": "$DOMAIN:443",
-          "xver": 1,
-          "serverNames": ["$DOMAIN"],
-          "privateKey": "$REALITY_PRIVATE_KEY",
-          "minClientVer": "",
-          "maxClientVer": "",
-          "maxTimeDiff": 0,
-          "shortIds": [$(printf "\"%s\"," "${REALITY_SHORT_IDS[@]}" | sed 's/,$//')]
-        }
-      }
-    },
-    {
-      "port": ${PORTS[REALITY_UDP]},
-      "protocol": "vless",
-      "settings": {"clients": [$reality_udp_clients], "decryption": "none"},
-      "streamSettings": {
-        "network": "udp",
         "security": "reality",
         "realitySettings": {
           "show": false,
@@ -581,12 +384,12 @@ EOF
 }
 EOF
 
-  # Vérification
+  # Vérification de la configuration
   if ! jq empty "$CONFIG_PATH" &>/dev/null; then
     error "Configuration JSON invalide"
     return 1
   fi
-  
+
   # Sauvegarde des paramètres
   {
     declare -p PORTS
@@ -594,11 +397,11 @@ EOF
     declare -p REALITY_PRIVATE_KEY
     declare -p REALITY_PUBLIC_KEY
     declare -p REALITY_SHORT_IDS
-  } > xray_config.sh && status "Configuration sauvegardée" || {
+  } > xray_config.sh && status "Configuration 443 multi-protocoles sauvegardée" || {
     error "Erreur lors de la sauvegarde"
     return 1
   }
-  
+
   return 0
 }
 
