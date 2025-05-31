@@ -26,14 +26,6 @@ NC='\033[0m'
 # Ports configurables
 #!/bin/bash
 
-#!/bin/bash
-
-# Configuration des couleurs
-CYAN='\033[0;36m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m' # No Color
-
 # Configuration des ports
 declare -A PORTS=(
     [VLESS_WS]=10000
