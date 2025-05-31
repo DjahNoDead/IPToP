@@ -584,7 +584,7 @@ EOF
   # Vérification
   if ! jq empty "$CONFIG_PATH" &>/dev/null; then
     error "Configuration JSON invalide"
-    return 1
+    exit 1
   fi
   
   # Sauvegarde des paramètres
