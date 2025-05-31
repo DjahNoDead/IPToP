@@ -610,100 +610,91 @@ install_all() {
   header
   echo -e " ${CYAN}Installation complète (Multi-protocole sur 443)${NC}\n"
   
+  # Vérification installation existante
   if [ -f "$CONFIG_PATH" ]; then
     warning "Xray semble déjà être installé"
     read -rp " Voulez-vous vraiment continuer ? (o/N) " confirm
     [[ ! "$confirm" =~ ^[oO]$ ]] && return
   fi
 
-  # Étape 1: Mise à jour système
+  # 1. Mise à jour système
   echo -n " [1/9] Mise à jour des paquets..."
-  if apt update &>/dev/null && apt upgrade -y &>/dev/null; then
-    echo -e "${GREEN} ✓${NC}"
-  else
+  if ! apt update &>/dev/null || ! apt upgrade -y &>/dev/null; then
     error "Échec de la mise à jour"
     return 1
   fi
+  echo -e "${GREEN} ✓${NC}"
 
-  # Étape 2: Installation dépendances
+  # 2. Installation dépendances
   echo -n " [2/9] Installation des dépendances..."
-  if apt install -y curl wget unzip nginx socat ufw certbot python3-certbot-nginx fail2ban jq openssl &>/dev/null; then
-    echo -e "${GREEN} ✓${NC}"
-  else
+  if ! apt install -y curl wget unzip nginx socat ufw certbot python3-certbot-nginx fail2ban jq openssl &>/dev/null; then
     error "Échec de l'installation des dépendances"
     return 1
   fi
+  echo -e "${GREEN} ✓${NC}"
 
-  # Étape 3: Configuration UFW
+  # 3. Configuration UFW
   echo -n " [3/9] Configuration du pare-feu (443 seulement)..."
   ufw allow 'OpenSSH' &>/dev/null
-  ufw allow 80/tcp &>/dev/null   # Pour Certbot
-  ufw allow 443/tcp &>/dev/null  # Seul port ouvert
-  ufw allow 443/udp &>/dev/null  # Pour Reality UDP
-  if ufw --force enable &>/dev/null; then
-    echo -e "${GREEN} ✓${NC}"
-  else
-    error "Échec de la configuration du pare-feu"
+  ufw allow 80/tcp &>/dev/null
+  ufw allow 443/tcp &>/dev/null
+  ufw allow 443/udp &>/dev/null
+  if ! ufw --force enable &>/dev/null; then
+    error "Échec de la configuration UFW"
     return 1
   fi
+  echo -e "${GREEN} ✓${NC}"
 
-  # Étape 4: Configuration Fail2ban
-  echo -n " [4/9] Configuration de Fail2ban..."
-  if systemctl enable --now fail2ban &>/dev/null; then
-    echo -e "${GREEN} ✓${NC}"
-  else
+  # 4. Configuration Fail2ban
+  echo -n " [4/9] Configuration Fail2ban..."
+  if ! systemctl enable --now fail2ban &>/dev/null; then
     error "Échec de la configuration Fail2ban"
     return 1
   fi
+  echo -e "${GREEN} ✓${NC}"
 
-  # Étape 5: Installation Xray
-  echo -n " [5/9] Installation de Xray..."
-  if bash <(curl -Ls https://raw.githubusercontent.com/XTLS/Xray-install/main/install-release.sh) &>/dev/null; then
-    echo -e "${GREEN} ✓${NC}"
-  else
-    error "Échec de l'installation de Xray"
+  # 5. Installation Xray
+  echo -n " [5/9] Installation Xray-core..."
+  if ! bash <(curl -Ls https://raw.githubusercontent.com/XTLS/Xray-install/main/install-release.sh) &>/dev/null; then
+    error "Échec de l'installation Xray"
     return 1
   fi
+  echo -e "${GREEN} ✓${NC}"
 
-  # Étape 6: Configuration des répertoires
+  # 6. Configuration des répertoires
   mkdir -p /usr/local/etc/xray /var/log/xray
 
-  # Étape 7: Configuration automatique des ports sur 443
-  echo -n " [6/9] Configuration des ports (unifié sur 443)..."
+  # 7. Configuration automatique des ports sur 443
+  echo -n " [6/9] Configuration des ports..."
   declare -A PORTS=(
-    [VLESS_WS]=443
-    [VLESS_TCP]=443
-    [VLESS_GRPC]=443
-    [VLESS_H2]=443
-    [VMESS_WS]=443
-    [VMESS_TCP]=443
-    [TROJAN_WS]=443
-    [TROJAN_TCP]=443
-    [SHADOWSOCKS]=443
-    [REALITY]=443
-    [REALITY_UDP]=443
+    [VLESS_WS]=443 [VLESS_TCP]=443 [VLESS_GRPC]=443 [VLESS_H2]=443
+    [VMESS_WS]=443 [VMESS_TCP]=443 [TROJAN_WS]=443 [TROJAN_TCP]=443
+    [SHADOWSOCKS]=443 [REALITY]=443 [REALITY_UDP]=443
   )
+  echo -e "${GREEN} ✓${NC} (Tous sur 443)"
+
+  # 8. Configuration Reality
+  echo -n " [7/9] Configuration Reality..."
+  if ! generate_reality_keys; then
+    error "Échec génération clés Reality"
+    return 1
+  fi
   echo -e "${GREEN} ✓${NC}"
 
-  # Étape 8: Configuration Reality
-  echo -n " [7/9] Configuration de Reality..."
-  generate_reality_keys
-  echo -e "${GREEN} ✓${NC}"
-
-  # Étape 9: Configuration du domaine
+  # 9. Configuration domaine et email
   header
   while [[ -z "$DOMAIN" ]]; do
-    input "Entrez le nom de domaine (ex: proxy.exemple.com) : "
+    input "Entrez votre domaine (ex: proxy.votresite.com) : "
     read -r DOMAIN
   done
 
   while [[ ! "$EMAIL" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$ ]]; do
-    input "Entrez votre email valide (pour Certbot) : "
+    input "Entrez un email valide (pour Certbot) : "
     read -r EMAIL
   done
 
-  # Étape 10: Configuration Nginx et certificat
-  echo -n " [8/9] Configuration du certificat TLS..."
+  # 10. Configuration Nginx et certificat
+  echo -n " [8/9] Configuration Certbot et Nginx..."
   rm -f /etc/nginx/sites-enabled/default
   cat > /etc/nginx/sites-available/"$DOMAIN".conf <<EOF
 server {
@@ -713,17 +704,14 @@ server {
 }
 EOF
   ln -sf /etc/nginx/sites-available/"$DOMAIN".conf /etc/nginx/sites-enabled/
-  
-  if certbot --nginx -d "$DOMAIN" --email "$EMAIL" --agree-tos --non-interactive &>/dev/null; then
-    echo -e "${GREEN} ✓${NC}"
-  else
-    error "Échec de l'obtention du certificat TLS"
+
+  if ! certbot --nginx -d "$DOMAIN" --email "$EMAIL" --agree-tos --non-interactive &>/dev/null; then
+    error "Échec Certbot"
     return 1
   fi
 
-  # Étape 11: Configuration finale Nginx pour multi-protocole
-  echo -n " [9/9] Configuration Nginx multi-protocole..."
-  cat > /etc/nginx/sites-available/"$DOMAIN".conf <<EOF
+  # Configuration Nginx finale pour multi-protocole
+  cat > /etc/nginx/sites-available/"$DOMAIN".conf <<'EOF'
 server {
     listen 443 ssl http2;
     server_name $DOMAIN;
@@ -737,40 +725,32 @@ server {
     location /vlessws {
         proxy_pass http://127.0.0.1:443;
         proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
-        proxy_set_header Host \$host;
+        proxy_set_header Host $host;
     }
 
-    # VMess WS
+    # VMESS WS
     location /vmessws {
         proxy_pass http://127.0.0.1:443;
         proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
-        proxy_set_header Host \$host;
+        proxy_set_header Host $host;
     }
 
-    # Trojan WS
+    # TROJAN WS
     location /trojanws {
         proxy_pass http://127.0.0.1:443;
         proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
-        proxy_set_header Host \$host;
+        proxy_set_header Host $host;
     }
 
     # VLESS gRPC
     location /vlessgrpc {
         grpc_pass grpc://127.0.0.1:443;
-    }
-
-    # VLESS HTTP/2
-    location /vlessh2 {
-        proxy_pass http://127.0.0.1:443;
-        proxy_http_version 1.1;
-        proxy_set_header Connection "";
-        proxy_set_header Host \$host;
     }
 
     # Page par défaut
@@ -782,38 +762,34 @@ server {
 }
 EOF
 
-  if systemctl reload nginx &>/dev/null; then
-    echo -e "${GREEN} ✓${NC}"
-  else
-    error "Échec de la configuration Nginx"
+  if ! systemctl reload nginx &>/dev/null; then
+    error "Échec rechargement Nginx"
+    return 1
+  fi
+  echo -e "${GREEN} ✓${NC}"
+
+  # 11. Création utilisateurs par défaut
+  echo -n " [9/9] Création utilisateurs..."
+  declare -A USERS=(
+    [VLESS_WS]=$(generate_uuid)      [VLESS_TCP]=$(generate_uuid)
+    [VLESS_GRPC]=$(generate_uuid)    [VLESS_H2]=$(generate_uuid)
+    [VMESS_WS]=$(generate_uuid)      [VMESS_TCP]=$(generate_uuid)
+    [TROJAN_WS]=$(random_password)   [TROJAN_TCP]=$(random_password)
+    [SHADOWSOCKS]=$(random_password) [REALITY]=$(generate_uuid)
+    [REALITY_UDP]=$(generate_uuid)
+  )
+
+  if ! save_config; then
+    error "Échec sauvegarde configuration"
     return 1
   fi
 
-  # Création des utilisateurs par défaut
-  status "Création des utilisateurs par défaut..."
-  USERS["VLESS_WS"]=$(generate_uuid) || return 1
-  USERS["VLESS_TCP"]=$(generate_uuid) || return 1
-  USERS["VLESS_GRPC"]=$(generate_uuid) || return 1
-  USERS["VLESS_H2"]=$(generate_uuid) || return 1
-  USERS["VMESS_WS"]=$(generate_uuid) || return 1
-  USERS["VMESS_TCP"]=$(generate_uuid) || return 1
-  USERS["TROJAN_WS"]=$(random_password) || return 1
-  USERS["TROJAN_TCP"]=$(random_password) || return 1
-  USERS["SHADOWSOCKS"]=$(random_password) || return 1
-  USERS["REALITY"]=$(generate_uuid) || return 1
-  USERS["REALITY_UDP"]=$(generate_uuid) || return 1
-
-  # Sauvegarde de la configuration
-  save_config || {
-    error "Échec de la sauvegarde de la configuration"
-    return 1
-  }
-
-  # Configuration du service Xray
+  # Configuration service Xray optimisée
   cat > /etc/systemd/system/xray.service <<EOF
 [Unit]
 Description=Xray Service
 After=network.target nginx.service
+Wants=network-online.target
 
 [Service]
 User=nobody
@@ -822,23 +798,28 @@ AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
 ExecStart=$XRAY_BIN run -config $CONFIG_PATH
 Restart=on-failure
 RestartSec=3
+LimitNOFILE=infinity
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
   systemctl daemon-reload
-  systemctl enable --now xray &>/dev/null && status "Service Xray activé"
+  if ! systemctl enable --now xray &>/dev/null; then
+    error "Échec démarrage Xray"
+    return 1
+  fi
 
   # Finalisation
   header
   status "Installation terminée avec succès"
-  echo -e " ${CYAN}Tous les protocoles fonctionnent sur le port 443${NC}"
-  echo -e " ${YELLOW}Configuration des chemins :${NC}"
-  echo -e "  - VLESS WS: /vlessws"
-  echo -e "  - VMESS WS: /vmessws"
-  echo -e "  - TROJAN WS: /trojanws"
-  echo -e "  - VLESS gRPC: /vlessgrpc"
+  echo -e "\n${CYAN}=== Configuration Multi-protocole sur 443 ===${NC}"
+  echo -e " ${YELLOW}Protocoles activés:${NC}"
+  echo -e "  • VLESS WS: /vlessws"
+  echo -e "  • VMESS WS: /vmessws"
+  echo -e "  • TROJAN WS: /trojanws"
+  echo -e "  • VLESS gRPC: /vlessgrpc"
+  echo -e "  • REALITY TCP/UDP: Port 443 direct"
   
   generate_links
   pause
