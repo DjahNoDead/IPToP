@@ -1,0 +1,2 @@
+__version__ = "NanoT"
+__expire__ = "30 Juin 2025"
