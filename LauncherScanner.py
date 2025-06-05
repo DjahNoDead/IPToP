@@ -343,7 +343,7 @@ def fix_permissions():
 # ===== MODIFICATIONS REQUISES =====
 
 def safe_main():
-    """Version sécurisée de la fonction main"""
+    """Version sécurisée de la fonction principale"""
     try:
         if not getattr(safe_main, "_banner_displayed", False):
             display_banner()
@@ -354,7 +354,6 @@ def safe_main():
         install_missing_modules(required_modules)
         threading.Thread(target=clean_old_versions, daemon=True).start()
 
-        # Vérification de mise à jour du script principal
         remote_version = get_script_remote_version()
         local_version = load_local_script_version()
 
@@ -367,7 +366,6 @@ def safe_main():
                 exec(script, globals())
                 return
 
-        # Utiliser le cache
         script = load_encrypted()
         if script:
             exec(script, globals())
@@ -379,18 +377,14 @@ def safe_main():
         print(f"\n[ERREUR CRITIQUE] {str(e)}")
         sys.exit(1)
 
+# Ajoutez cette fonction pour la compatibilité
+def main():
+    """Alias pour safe_main() pour la compatibilité"""
+    safe_main()
+
 if __name__ == "__main__":
     if os.environ.get("IPT_RECOVERY_MODE") != "1":
         update_self_if_needed()
     
-    # Remplacez l'appel à main() par :
-    try:
-        if 'main' in globals():
-            main()
-        else:
-            print("[⚠️] Fonction main() non trouvée. Chargement en mode recovery.")
-            from iptp import main  # Suppose que le script principal s'appelle iptp.py
-            main()
-    except Exception as e:
-        print(f"[❌] Erreur critique : {str(e)}")
-        sys.exit(1)
+    # Appel unifié et sécurisé
+    safe_main()  # Utilisez toujours safe_main() directement
