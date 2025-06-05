@@ -1,6 +1,6 @@
 # Changelog du Launcher
 
-## v1.0.3 - 2025-06-05
+## v1.2.4 - 2025-06-05
 - Ajout du système d’auto-mise-à-jour du launcher
 - Vérification distante via version.txt
 - Redémarrage automatique après mise à jour
