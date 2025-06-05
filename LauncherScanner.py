@@ -199,6 +199,7 @@ install_missing_modules(required_modules)
 import urllib.request
 import tempfile
 import socket
+import sys
 import hashlib
 import base64
 from Cryptodome.Cipher import AES
