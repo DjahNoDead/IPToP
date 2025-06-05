@@ -205,8 +205,15 @@ import hashlib
 import base64
 from Cryptodome.Cipher import AES
 from Cryptodome.Util.Padding import pad, unpad
+from Cryptodome.Protocol.KDF import scrypt
+from Cryptodome.Util.Padding import pad, unpad
+import getpass
+import uuid
 import ctypes
 import platform
+import os
+import stat
+
 
 # 🔐 Configuration et sécurité
 REPO_URL = "https://raw.githubusercontent.com/DjahNoDead/IPToP/main/"
@@ -215,11 +222,17 @@ SECRET_KEY = hashlib.sha256(
     b"MaCleSecretePersonnalisableS@int_Saint-S@int!Est#Le&Tout?Puissant!"
 ).digest()
 
+# Configuration
 CACHE_DIR = os.path.expanduser("~/.config/.iptp_secure")
 CACHE_PATH = os.path.join(CACHE_DIR, "cache.dat")
 VERSION_FILE = os.path.join(CACHE_DIR, "iptp.version.local")
 
 os.makedirs(CACHE_DIR, mode=0o700, exist_ok=True)
+
+def generate_machine_specific_key():
+    """Génère une clé unique à la machine"""
+    seed = f"{uuid.getnode()}-{getpass.getuser()}".encode()
+    return scrypt(seed, salt=b"IPT0P-S3CR3T", key_len=32, N=2**14, r=8, p=1)
 
 # 🔐 Chiffrement AES-256
 def encrypt_content(content):
@@ -237,22 +250,22 @@ def decrypt_content(encrypted):
         return None
 
 # 💾 Cache
-def save_encrypted(content):
-    try:
-        encrypted = encrypt_content(content)
-        with open(CACHE_PATH, "w", encoding="utf-8") as f:
-            f.write(encrypted)
-        os.chmod(CACHE_PATH, 0o600)
-        return True
-    except Exception as e:
-        print(f"[!] Erreur chiffrement: {e}")
-        return False
+def encrypt_file_content(content, key=None):
+    """Chiffre le contenu avec la clé machine"""
+    key = key or generate_machine_specific_key()
+    cipher = AES.new(key, AES.MODE_GCM)
+    ciphertext, tag = cipher.encrypt_and_digest(pad(content.encode(), AES.block_size))
+    return base64.b64encode(cipher.nonce + tag + ciphertext).decode()
 
-def load_encrypted():
+def decrypt_file_content(encrypted, key=None):
+    """Déchiffre le contenu avec la clé machine"""
     try:
-        with open(CACHE_PATH, "r", encoding="utf-8") as f:
-            return decrypt_content(f.read())
-    except:
+        key = key or generate_machine_specific_key()
+        data = base64.b64decode(encrypted)
+        nonce, tag, ciphertext = data[:16], data[16:32], data[32:]
+        cipher = AES.new(key, AES.MODE_GCM, nonce=nonce)
+        return unpad(cipher.decrypt_and_verify(ciphertext, tag), AES.block_size).decode()
+    except Exception:
         return None
 
 # 📦 Version du script principal
@@ -313,21 +326,61 @@ def ensure_cache_dir():
         return False
 
 def initialize():
+    """Version sécurisée de l'initialisation du cache"""
+    # Crée le dossier s'il n'existe pas avec les bonnes permissions
     if not ensure_cache_dir():
-        sys.exit(1)
+        return False
+    
+    # Applique les protections spécifiques au dossier
+    secure_directory()
+    
     try:
+        # Test d'écriture et lecture pour vérifier les permissions
         test_file = os.path.join(CACHE_DIR, "test.tmp")
         with open(test_file, "w") as f:
             f.write("test")
+        
+        # Test de lecture
+        with open(test_file, "r") as f:
+            if f.read() != "test":
+                raise RuntimeError("Test de lecture échoué")
+        
         os.remove(test_file)
         return True
     except Exception as e:
-        print(f"[ERREUR] Permission refusée dans {CACHE_DIR}")
+        print(f"[ERREUR] Initialisation du cache: {str(e)}")
         return False
 
-if not initialize():
-    sys.exit(1)
+def secure_directory():
+    """Applique les protections au dossier spécifique"""
+    try:
+        # Création du dossier si nécessaire
+        if not os.path.exists(CACHE_DIR):
+            os.makedirs(CACHE_DIR, mode=0o700)
+        
+        # Protection UNIX (Linux/Mac)
+        if os.name == 'posix':
+            # Définit les permissions (lecture/écriture/exécution pour le propriétaire seulement)
+            os.chmod(CACHE_DIR, 0o700)
+            
+            # Optionnel: rendre le dossier caché
+            hidden_file = os.path.join(CACHE_DIR, ".hidden")
+            open(hidden_file, 'w').close()
+            
+        # Protection Windows
+        elif os.name == 'nt':
+            import ctypes
+            # Cache le dossier (attribut 2 = caché)
+            ctypes.windll.kernel32.SetFileAttributesW(CACHE_DIR, 2)
+            
+    except Exception as e:
+        print(f"[SECURITE] Erreur de protection: {str(e)}")
 
+# Initialisation sécurisée
+if not initialize():
+    print("[❌] Échec critique de l'initialisation")
+    sys.exit(1)
+    
 # 🔧 Permissions (optionnel mais utile)
 def fix_permissions():
     try:
@@ -343,7 +396,7 @@ def fix_permissions():
 # ===== MODIFICATIONS REQUISES =====
 
 def safe_main():
-    """Version sécurisée de la fonction principale"""
+    """Version sécurisée de la fonction main"""
     try:
         if not getattr(safe_main, "_banner_displayed", False):
             display_banner()
@@ -354,6 +407,7 @@ def safe_main():
         install_missing_modules(required_modules)
         threading.Thread(target=clean_old_versions, daemon=True).start()
 
+        # Vérification de mise à jour du script principal
         remote_version = get_script_remote_version()
         local_version = load_local_script_version()
 
@@ -366,6 +420,7 @@ def safe_main():
                 exec(script, globals())
                 return
 
+        # Utiliser le cache
         script = load_encrypted()
         if script:
             exec(script, globals())
@@ -377,14 +432,18 @@ def safe_main():
         print(f"\n[ERREUR CRITIQUE] {str(e)}")
         sys.exit(1)
 
-# Ajoutez cette fonction pour la compatibilité
-def main():
-    """Alias pour safe_main() pour la compatibilité"""
-    safe_main()
-
 if __name__ == "__main__":
     if os.environ.get("IPT_RECOVERY_MODE") != "1":
         update_self_if_needed()
     
-    # Appel unifié et sécurisé
-    safe_main()  # Utilisez toujours safe_main() directement
+    # Remplacez l'appel à main() par :
+    try:
+        if 'main' in globals():
+            main()
+        else:
+            print("[⚠️] Fonction main() non trouvée. Chargement en mode recovery.")
+            from iptp import main  # Suppose que le script principal s'appelle iptp.py
+            main()
+    except Exception as e:
+        print(f"[❌] Erreur critique : {str(e)}")
+        sys.exit(1)
