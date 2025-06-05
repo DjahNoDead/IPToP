@@ -382,35 +382,27 @@ def fix_permissions():
     except Exception as e:
         print(f"[DEBUG] Erreur permissions: {str(e)}")
         return False
- 
-def load_encrypted():
-    """Version minimale si vous n'avez pas les autres fonctions"""
-    try:
-        with open(CACHE_PATH, "r") as f:
-            return f.read()  # Retirez le déchiffrement si non nécessaire
-    except FileNotFoundError:
-        return None
-
+        
 # ===== MODIFICATIONS REQUISES =====
 
 def safe_main():
-    """Point d'entrée principal sécurisé"""
+    """Version sécurisée de la fonction main"""
     try:
-        # Initialisation
-        if not getattr(safe_main, '_init', False):
+        if not getattr(safe_main, "_banner_displayed", False):
             display_banner()
-            safe_main._init = True
-            time.sleep(1)
+            safe_main._banner_displayed = True
 
-        # Vérification des dépendances
+        time.sleep(2)
+        print("[🚀] Script lancé.")
         install_missing_modules(required_modules)
-        
-        # Chargement du script principal
+        threading.Thread(target=clean_old_versions, daemon=True).start()
+
+        # Vérification de mise à jour du script principal
         remote_version = get_script_remote_version()
         local_version = load_local_script_version()
 
         if remote_version and remote_version != local_version:
-            print(f"[⬇️] Mise à jour du script (v{remote_version})...")
+            print(f"[⬇️] Mise à jour du script principal (v{remote_version})...")
             script = download_script()
             if script:
                 save_encrypted(script)
@@ -418,23 +410,30 @@ def safe_main():
                 exec(script, globals())
                 return
 
+        # Utiliser le cache
         script = load_encrypted()
         if script:
             exec(script, globals())
             return
-            
-        print("\n[❌] Aucune version valide disponible")
+
+        print("\n[ERREUR] Aucun script disponible")
         sys.exit(1)
-        
     except Exception as e:
-        print(f"\n[💥] ERREUR: {str(e)}")
+        print(f"\n[ERREUR CRITIQUE] {str(e)}")
         sys.exit(1)
 
 if __name__ == "__main__":
-    # Mode recovery simplifié
-    if os.environ.get("IPT_NO_UPDATE") != "1":
-        if update_self_if_needed():  # Si mise à jour effectuée
-            os.environ["IPT_NO_UPDATE"] = "1"
-            os.execv(sys.executable, [sys.executable] + sys.argv)
+    if os.environ.get("IPT_RECOVERY_MODE") != "1":
+        update_self_if_needed()
     
-    safe_main()  # Appel direct sans vérification de main()
+    # Remplacez l'appel à main() par :
+    try:
+        if 'main' in globals():
+            main()
+        else:
+            print("[⚠️] Fonction main() non trouvée. Chargement en mode recovery.")
+            from iptp import main  # Suppose que le script principal s'appelle iptp.py
+            main()
+    except Exception as e:
+        print(f"[❌] Erreur critique : {str(e)}")
+        sys.exit(1)
