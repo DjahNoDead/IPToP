@@ -1,6 +1,10 @@
 # ===== Auto-update du launcher =====
 import urllib.request
 import hashlib
+import sys
+import time
+import os
+import threading
 
 # Couleurs ANSI pour la bannière
 COLOR_RED = "\033[91m"
@@ -62,46 +66,44 @@ def get_self_path():
 
 
 def update_self_if_needed():
-    display_banner()
-    print("[🔁] Vérification de mise à jour du launcher...")
-
-    remote_version = get_remote_version()
-    if not remote_version:
-        print("[⚠️] Impossible de vérifier la version distante.")
-        return False
-
-    if remote_version == VERSION:
-        print(f"[✓] Launcher à jour (v{VERSION})")
-        return False
-
-    print(f"[⬆️] Nouvelle version détectée (v{remote_version}) → mise à jour...")
-
-    remote_code = get_remote_launcher()
-    if not remote_code:
-        print("[❌] Échec du téléchargement de la nouvelle version.")
-        return False
-
+    """Version améliorée de la mise à jour"""
     try:
-        # Écrire dans un fichier temporaire d'abord
+        if os.environ.get("IPT_RECOVERY_MODE") == "1":
+            print("[ℹ️] Mode recovery activé - skip mise à jour")
+            return False
+
+        display_banner()
+        print("[🔁] Vérification de mise à jour du launcher...")
+
+        remote_version = get_remote_version()
+        if not remote_version:
+            print("[⚠️] Impossible de vérifier la version distante.")
+            return False
+
+        if remote_version == VERSION:
+            print(f"[✓] Launcher à jour (v{VERSION})")
+            return False
+
+        print(f"[⬆️] Nouvelle version détectée (v{remote_version}) → mise à jour...")
+
+        remote_code = get_remote_launcher()
+        if not remote_code:
+            print("[❌] Échec du téléchargement de la nouvelle version.")
+            return False
+
         temp_path = get_self_path() + ".tmp"
         with open(temp_path, "w", encoding="utf-8") as f:
             f.write(remote_code)
-        
-        # Remplacer l'ancien fichier
+
         os.replace(temp_path, get_self_path())
-        
         print("[✅] Mise à jour réussie. Redémarrage...")
         
-        # Lancer le nouveau script sans vérifier les mises à jour
-        os.execv(sys.executable, [sys.executable, get_self_path(), "--no-update"])
+        os.environ["IPT_RECOVERY_MODE"] = "1"
+        os.execv(sys.executable, [sys.executable, get_self_path()])
+        
     except Exception as e:
-        print(f"[❌] Erreur durant la mise à jour : {str(e)}")
+        print(f"[❌] Échec critique de mise à jour : {str(e)}")
         return False
-
-if __name__ == "__main__":
-    if "--no-update" not in sys.argv:
-        update_self_if_needed()
-    main()
 
 #===== Installateur automatique=====
 
@@ -199,7 +201,6 @@ install_missing_modules(required_modules)
 import urllib.request
 import tempfile
 import socket
-import sys
 import hashlib
 import base64
 from Cryptodome.Cipher import AES
@@ -339,41 +340,57 @@ def fix_permissions():
         print(f"[DEBUG] Erreur permissions: {str(e)}")
         return False
         
-def main():
-    if not getattr(main, "_banner_displayed", False):
-        display_banner()
-        main._banner_displayed = True
+# ===== MODIFICATIONS REQUISES =====
 
-    time.sleep(2)
-    print("[🚀] Script lancé.")
-    install_missing_modules(required_modules)
-    threading.Thread(target=clean_old_versions, daemon=True).start()
+def safe_main():
+    """Version sécurisée de la fonction main"""
+    try:
+        if not getattr(safe_main, "_banner_displayed", False):
+            display_banner()
+            safe_main._banner_displayed = True
 
-    # 🔁 Vérification de mise à jour du script principal
-    remote_version = get_script_remote_version()
-    local_version = load_local_script_version()
+        time.sleep(2)
+        print("[🚀] Script lancé.")
+        install_missing_modules(required_modules)
+        threading.Thread(target=clean_old_versions, daemon=True).start()
 
-    if remote_version and remote_version != local_version:
-        print(f"[⬇️] Mise à jour du script principal (v{remote_version})...")
-        script = download_script()
+        # Vérification de mise à jour du script principal
+        remote_version = get_script_remote_version()
+        local_version = load_local_script_version()
+
+        if remote_version and remote_version != local_version:
+            print(f"[⬇️] Mise à jour du script principal (v{remote_version})...")
+            script = download_script()
+            if script:
+                save_encrypted(script)
+                save_local_script_version(remote_version)
+                exec(script, globals())
+                return
+
+        # Utiliser le cache
+        script = load_encrypted()
         if script:
-            save_encrypted(script)
-            save_local_script_version(remote_version)
             exec(script, globals())
             return
-        else:
-            print("[⚠️] Échec du téléchargement du script principal.")
-            sys.exit(1)
 
-    # ✅ Utiliser le cache s’il existe (sans contrôle de validité)
-    script = load_encrypted()
-    if script:
-        exec(script, globals())
-        return
+        print("\n[ERREUR] Aucun script disponible")
+        sys.exit(1)
+    except Exception as e:
+        print(f"\n[ERREUR CRITIQUE] {str(e)}")
+        sys.exit(1)
 
-    print("\n[ERREUR] Aucun script disponible (cache manquant et échec réseau)")
-    sys.exit(1)
-    
 if __name__ == "__main__":
-    update_self_if_needed()  # Affiche la bannière + fait la mise à jour
-    main()
+    if os.environ.get("IPT_RECOVERY_MODE") != "1":
+        update_self_if_needed()
+    
+    # Remplacez l'appel à main() par :
+    try:
+        if 'main' in globals():
+            main()
+        else:
+            print("[⚠️] Fonction main() non trouvée. Chargement en mode recovery.")
+            from iptp import main  # Suppose que le script principal s'appelle iptp.py
+            main()
+    except Exception as e:
+        print(f"[❌] Erreur critique : {str(e)}")
+        sys.exit(1)
