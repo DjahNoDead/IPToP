@@ -62,8 +62,9 @@ def get_self_path():
 
 
 def update_self_if_needed():
-    # Ajouter un flag pour éviter les boucles infinies
-    if getattr(update_self_if_needed, "_already_updated", False):
+    # Vérifier si nous sommes déjà en train de mettre à jour
+    if os.environ.get("IPT_UPDATE_IN_PROGRESS") == "1":
+        print("[ℹ️] Mise à jour déjà en cours, skip...")
         return False
         
     display_banner()
@@ -86,11 +87,18 @@ def update_self_if_needed():
         return False
 
     try:
+        # Marquer le processus comme étant en mise à jour
+        os.environ["IPT_UPDATE_IN_PROGRESS"] = "1"
+        
         with open(get_self_path(), "w", encoding="utf-8") as f:
             f.write(remote_code)
+        
         print("[✅] Mise à jour réussie. Redémarrage...")
-        # Marquer comme déjà mis à jour avant le redémarrage
-        update_self_if_needed._already_updated = True
+        
+        # Attendre un court instant pour s'assurer que tout est écrit
+        time.sleep(1)
+        
+        # Redémarrer avec le nouveau code
         os.execv(sys.executable, [sys.executable] + sys.argv)
     except Exception as e:
         print(f"[❌] Erreur durant la mise à jour : {str(e)}")
