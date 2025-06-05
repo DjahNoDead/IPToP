@@ -213,6 +213,7 @@ import ctypes
 import platform
 import os
 import stat
+import uuid
 
 
 # 🔐 Configuration et sécurité
@@ -228,6 +229,11 @@ CACHE_PATH = os.path.join(CACHE_DIR, "cache.dat")
 VERSION_FILE = os.path.join(CACHE_DIR, "iptp.version.local")
 
 os.makedirs(CACHE_DIR, mode=0o700, exist_ok=True)
+
+def generate_machine_password():
+    """Génère un mot de passe unique basé sur l'identifiant matériel"""
+    machine_fingerprint = f"{uuid.getnode()}-{getpass.getuser()}-IPT0P-S3CR3T"
+    return hashlib.sha256(machine_fingerprint.encode()).hexdigest()[:32]  # Clé AES-256
 
 def generate_machine_specific_key():
     """Génère une clé unique à la machine"""
@@ -250,21 +256,23 @@ def decrypt_content(encrypted):
         return None
 
 # 💾 Cache
-def encrypt_file_content(content, key=None):
-    """Chiffre le contenu avec la clé machine"""
-    key = key or generate_machine_specific_key()
-    cipher = AES.new(key, AES.MODE_GCM)
-    ciphertext, tag = cipher.encrypt_and_digest(pad(content.encode(), AES.block_size))
-    return base64.b64encode(cipher.nonce + tag + ciphertext).decode()
+def encrypt_file_content(content, password=None):
+    """Chiffre le contenu avec une clé dérivée du mot de passe machine"""
+    password = password or generate_machine_password()
+    key = hashlib.sha256(password.encode()).digest()  # Clé AES-256
+    cipher = AES.new(key, AES.MODE_CBC)
+    ct_bytes = cipher.encrypt(pad(content.encode(), AES.block_size))
+    return base64.b64encode(cipher.iv + ct_bytes).decode()
 
-def decrypt_file_content(encrypted, key=None):
+def decrypt_file_content(encrypted, password=None):
     """Déchiffre le contenu avec la clé machine"""
     try:
-        key = key or generate_machine_specific_key()
+        password = password or generate_machine_password()
+        key = hashlib.sha256(password.encode()).digest()
         data = base64.b64decode(encrypted)
-        nonce, tag, ciphertext = data[:16], data[16:32], data[32:]
-        cipher = AES.new(key, AES.MODE_GCM, nonce=nonce)
-        return unpad(cipher.decrypt_and_verify(ciphertext, tag), AES.block_size).decode()
+        iv, ct = data[:16], data[16:]
+        cipher = AES.new(key, AES.MODE_CBC, iv=iv)
+        return unpad(cipher.decrypt(ct), AES.block_size).decode()
     except Exception:
         return None
 
@@ -326,55 +334,37 @@ def ensure_cache_dir():
         return False
 
 def initialize():
-    """Version sécurisée de l'initialisation du cache"""
-    # Crée le dossier s'il n'existe pas avec les bonnes permissions
-    if not ensure_cache_dir():
+    """Initialisation sécurisée du cache"""
+    if not os.path.exists(CACHE_DIR):
+        secure_directory()  # Crée le dossier avec protections
+
+    # Test de fonctionnement du chiffrement
+    test_data = "IPT0P_TEST_" + str(time.time())
+    encrypted = encrypt_file_content(test_data)
+    decrypted = decrypt_file_content(encrypted)
+
+    if decrypted != test_data:
+        print("[❌] ERREUR: Échec du chiffrement/déchiffrement automatique")
         return False
-    
-    # Applique les protections spécifiques au dossier
-    secure_directory()
-    
-    try:
-        # Test d'écriture et lecture pour vérifier les permissions
-        test_file = os.path.join(CACHE_DIR, "test.tmp")
-        with open(test_file, "w") as f:
-            f.write("test")
-        
-        # Test de lecture
-        with open(test_file, "r") as f:
-            if f.read() != "test":
-                raise RuntimeError("Test de lecture échoué")
-        
-        os.remove(test_file)
-        return True
-    except Exception as e:
-        print(f"[ERREUR] Initialisation du cache: {str(e)}")
-        return False
+    return True
 
 def secure_directory():
-    """Applique les protections au dossier spécifique"""
+    """Verrouille le dossier .iptp_secure"""
     try:
-        # Création du dossier si nécessaire
         if not os.path.exists(CACHE_DIR):
-            os.makedirs(CACHE_DIR, mode=0o700)
-        
-        # Protection UNIX (Linux/Mac)
+            os.makedirs(CACHE_DIR, mode=0o700)  # Permissions restrictives
+
+        # Protection UNIX (700 = seul l'utilisateur a accès)
         if os.name == 'posix':
-            # Définit les permissions (lecture/écriture/exécution pour le propriétaire seulement)
             os.chmod(CACHE_DIR, 0o700)
-            
-            # Optionnel: rendre le dossier caché
-            hidden_file = os.path.join(CACHE_DIR, ".hidden")
-            open(hidden_file, 'w').close()
-            
-        # Protection Windows
+            os.chown(CACHE_DIR, os.getuid(), os.getgid())  # Propriétaire strict
+
+        # Protection Windows (caché + accès restreint)
         elif os.name == 'nt':
             import ctypes
-            # Cache le dossier (attribut 2 = caché)
-            ctypes.windll.kernel32.SetFileAttributesW(CACHE_DIR, 2)
-            
+            ctypes.windll.kernel32.SetFileAttributesW(CACHE_DIR, 2)  # Caché
     except Exception as e:
-        print(f"[SECURITE] Erreur de protection: {str(e)}")
+        print(f"[SECURITE] Erreur: {str(e)}")
 
 # Initialisation sécurisée
 if not initialize():
