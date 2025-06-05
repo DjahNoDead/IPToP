@@ -1,0 +1,10 @@
+# Changelog du Launcher
+
+## v1.0.3 - 2025-06-05
+- Ajout du système d’auto-mise-à-jour du launcher
+- Vérification distante via version.txt
+- Redémarrage automatique après mise à jour
+- Nettoyage du cache local obsolète
+- Ajout du support de l’environnement Termux
+- Installation automatique des modules Python requis
+- Téléchargement et exécution sécurisée de IPToP_Scaner
