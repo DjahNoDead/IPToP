@@ -62,6 +62,10 @@ def get_self_path():
 
 
 def update_self_if_needed():
+    # Ajouter un flag pour éviter les boucles infinies
+    if getattr(update_self_if_needed, "_already_updated", False):
+        return False
+        
     display_banner()
     print("[🔁] Vérification de mise à jour du launcher...")
 
@@ -85,11 +89,13 @@ def update_self_if_needed():
         with open(get_self_path(), "w", encoding="utf-8") as f:
             f.write(remote_code)
         print("[✅] Mise à jour réussie. Redémarrage...")
+        # Marquer comme déjà mis à jour avant le redémarrage
+        update_self_if_needed._already_updated = True
         os.execv(sys.executable, [sys.executable] + sys.argv)
     except Exception as e:
         print(f"[❌] Erreur durant la mise à jour : {str(e)}")
         return False
-
+        
 #===== Installateur automatique=====
 
 import subprocess
