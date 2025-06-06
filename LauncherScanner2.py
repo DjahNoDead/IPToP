@@ -93,76 +93,68 @@ def get_self_path():
 
 
 def update_self_if_needed():
-    """Version corrigée avec double vérification"""
-    # Fichier lock pour éviter les boucles
-    LOCK_FILE = os.path.join(CACHE_DIR, ".launcher_lock")
+    """Version finale avec protection renforcée"""
+    # Fichier lock pour détection première installation
+    INIT_FLAG = os.path.join(CACHE_DIR, ".initialized")
     
-    # Si lock existe et a moins de 5 minutes
+    # Mode première installation
+    if not os.path.exists(INIT_FLAG):
+        try:
+            os.makedirs(CACHE_DIR, mode=0o700, exist_ok=True)
+            with open(INIT_FLAG, "w") as f:
+                f.write("1")
+            print("[🛠️] Installation initiale détectée")
+            return False  # Saute la mise à jour lors du premier lancement
+        except:
+            pass
+
+    # Vérification standard des mises à jour
+    LOCK_FILE = os.path.join(CACHE_DIR, ".update_lock")
     if os.path.exists(LOCK_FILE) and (time.time() - os.path.getmtime(LOCK_FILE)) < 300:
         return False
         
     try:
-        # Création du lock
         with open(LOCK_FILE, "w") as f:
             f.write(str(os.getpid()))
             
         display_banner()
-        print("[🔁] Vérification de mise à jour du launcher...")
+        print("[🔁] Vérification de mise à jour...")
 
         remote_version = get_remote_version()
         if not remote_version:
-            print("[⚠️] Impossible de vérifier la version distante.")
+            print("[⚠️] Impossible de vérifier la version")
             os.remove(LOCK_FILE)
             return False
 
         if remote_version == VERSION:
-            print(f"[✓] Launcher à jour (v{VERSION})")
+            print(f"[✓] Version {VERSION} à jour")
             os.remove(LOCK_FILE)
             return False
 
-        print(f"[⬆️] Nouvelle version détectée (v{remote_version}) → mise à jour...")
-
+        print(f"[⬆️] Nouvelle version {remote_version} disponible")
         remote_code = get_remote_launcher()
         if not remote_code:
-            print("[❌] Échec du téléchargement. Annulation.")
+            print("[❌] Échec du téléchargement")
             os.remove(LOCK_FILE)
             return False
 
-        # Écriture en 3 étapes sécurisées
+        # Processus atomique
         temp_path = f"{get_self_path()}.tmp"
-        backup_path = f"{get_self_path()}.bak"
+        with open(temp_path, "w", encoding="utf-8") as f:
+            f.write(remote_code)
+        os.replace(temp_path, get_self_path())
         
-        try:
-            # 1. Sauvegarde
-            if os.path.exists(get_self_path()):
-                os.rename(get_self_path(), backup_path)
-                
-            # 2. Nouvelle version
-            with open(temp_path, "w", encoding="utf-8") as f:
-                f.write(remote_code)
-                
-            # 3. Remplacement atomique
-            os.rename(temp_path, get_self_path())
-            
-            print("[✅] Mise à jour réussie. Redémarrage...")
-            os.remove(LOCK_FILE)
-            os.execv(sys.executable, [sys.executable] + sys.argv)
-            return True
-            
-        except Exception as e:
-            # Restauration en cas d'échec
-            if os.path.exists(backup_path):
-                os.rename(backup_path, get_self_path())
-            print(f"[❌] Erreur critique : {str(e)}")
-            os.remove(LOCK_FILE)
-            return False
-            
+        print("[✅] Mise à jour réussie")
+        os.remove(LOCK_FILE)
+        os.execv(sys.executable, [sys.executable] + sys.argv)
+        return True
+        
     except Exception as e:
-        print(f"[⚠️] Erreur système : {str(e)}")
+        print(f"[❌] Erreur: {str(e)}")
         if os.path.exists(LOCK_FILE):
             os.remove(LOCK_FILE)
         return False
-
+        
 #===== Installateur automatique=====
 
 import subprocess
