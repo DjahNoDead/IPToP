@@ -91,48 +91,76 @@ def get_self_path():
 
 
 def update_self_if_needed():
-    """Version corrigée avec protection renforcée"""
-    # Protection contre les redémarrages infinis
-    if hasattr(sys, '_launcher_updated'):
-        return False
-        
+    """Version ultra-robuste avec gestion complète des erreurs"""
+    # Fichier lock pour éviter les boucles
+    LOCK_FILE = os.path.join(CACHE_DIR, ".update_lock")
+    
     try:
+        # Vérifie si une mise à jour est déjà en cours
+        if os.path.exists(LOCK_FILE):
+            with open(LOCK_FILE, "r") as f:
+                if f.read().strip() == "1":  # Mise à jour en cours
+                    return False
+                    
         display_banner()
         print("[🔁] Vérification de mise à jour du launcher...")
+
+        # Marque le début de la mise à jour
+        with open(LOCK_FILE, "w") as f:
+            f.write("1")
 
         remote_version = get_remote_version()
         if not remote_version:
             print("[⚠️] Impossible de vérifier la version distante.")
+            os.remove(LOCK_FILE)
             return False
 
         if remote_version == VERSION:
             print(f"[✓] Launcher à jour (v{VERSION})")
+            os.remove(LOCK_FILE)
             return False
 
         print(f"[⬆️] Nouvelle version détectée (v{remote_version}) → mise à jour...")
 
         remote_code = get_remote_launcher()
         if not remote_code:
-            print("[❌] Échec du téléchargement de la nouvelle version.")
+            print("[❌] Échec du téléchargement. Utilisation de la version locale.")
+            os.remove(LOCK_FILE)
             return False
 
-        # Écriture atomique avec fichier temporaire
+        # Écriture atomique en 3 étapes
         temp_path = f"{get_self_path()}.tmp"
-        with open(temp_path, "w", encoding="utf-8") as f:
-            f.write(remote_code)
+        backup_path = f"{get_self_path()}.bak"
         
-        # Remplacement atomique
-        os.replace(temp_path, get_self_path())
-        
-        # Marqueur de mise à jour réussie
-        sys._launcher_updated = True
-        
-        print("[✅] Mise à jour réussie. Redémarrage...")
-        os.execv(sys.executable, [sys.executable] + sys.argv)
-        return True
-        
+        try:
+            # 1. Sauvegarde de l'ancienne version
+            if os.path.exists(get_self_path()):
+                os.rename(get_self_path(), backup_path)
+                
+            # 2. Écriture nouvelle version
+            with open(temp_path, "w", encoding="utf-8") as f:
+                f.write(remote_code)
+                
+            # 3. Remplacement atomique
+            os.rename(temp_path, get_self_path())
+            
+            print("[✅] Mise à jour réussie. Redémarrage...")
+            os.remove(LOCK_FILE)
+            os.execv(sys.executable, [sys.executable] + sys.argv)
+            return True
+            
+        except Exception as e:
+            # Restauration en cas d'échec
+            if os.path.exists(backup_path):
+                os.rename(backup_path, get_self_path())
+            print(f"[❌] Erreur critique : {str(e)}")
+            os.remove(LOCK_FILE)
+            return False
+            
     except Exception as e:
-        print(f"[❌] Erreur durant la mise à jour : {str(e)}")
+        print(f"[⚠️] Erreur système : {str(e)}")
+        if os.path.exists(LOCK_FILE):
+            os.remove(LOCK_FILE)
         return False
 
 #===== Installateur automatique=====
