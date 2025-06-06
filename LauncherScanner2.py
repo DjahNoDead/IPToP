@@ -341,41 +341,49 @@ def fix_permissions():
         print(f"[DEBUG] Erreur permissions: {str(e)}")
         return False
         
-def main():
-    if not getattr(main, "_banner_displayed", False):
-        display_banner()
-        main._banner_displayed = True
+def safe_main():
+    """Version sécurisée de la fonction principale"""
+    try:
+        if not getattr(safe_main, "_banner_displayed", False):
+            display_banner()
+            safe_main._banner_displayed = True
 
-    time.sleep(2)
-    print("[🚀] Script lancé.")
-    install_missing_modules(required_modules)
-    threading.Thread(target=clean_old_versions, daemon=True).start()
+        time.sleep(2)
+        print("[🚀] Script lancé.")
+        install_missing_modules(required_modules)
+        threading.Thread(target=clean_old_versions, daemon=True).start()
 
-    # 🔁 Vérification de mise à jour du script principal
-    remote_version = get_script_remote_version()
-    local_version = load_local_script_version()
+        remote_version = get_script_remote_version()
+        local_version = load_local_script_version()
 
-    if remote_version and remote_version != local_version:
-        print(f"[⬇️] Mise à jour du script principal (v{remote_version})...")
-        script = download_script()
+        if remote_version and remote_version != local_version:
+            print(f"[⬇️] Mise à jour du script principal (v{remote_version})...")
+            script = download_script()
+            if script:
+                save_encrypted(script)
+                save_local_script_version(remote_version)
+                exec(script, globals())
+                return
+
+        script = load_encrypted()
         if script:
-            save_encrypted(script)
-            save_local_script_version(remote_version)
             exec(script, globals())
             return
-        else:
-            print("[⚠️] Échec du téléchargement du script principal.")
-            sys.exit(1)
 
-    # ✅ Utiliser le cache s’il existe (sans contrôle de validité)
-    script = load_encrypted()
-    if script:
-        exec(script, globals())
-        return
+        print("\n[ERREUR] Aucun script disponible")
+        sys.exit(1)
+    except Exception as e:
+        print(f"\n[ERREUR CRITIQUE] {str(e)}")
+        sys.exit(1)
 
-    print("\n[ERREUR] Aucun script disponible (cache manquant et échec réseau)")
-    sys.exit(1)
-    
+# Ajoutez cette fonction pour la compatibilité
+def main():
+    """Alias pour safe_main() pour la compatibilité"""
+    safe_main()
+
 if __name__ == "__main__":
-    update_self_if_needed()  # Affiche la bannière + fait la mise à jour
-    main()
+    if os.environ.get("IPT_RECOVERY_MODE") != "1":
+        update_self_if_needed()
+    
+    # Appel unifié et sécurisé
+    safe_main()  # Utilisez toujours safe_main() directement
