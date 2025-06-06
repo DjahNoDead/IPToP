@@ -385,5 +385,14 @@ if __name__ == "__main__":
     if os.environ.get("IPT_RECOVERY_MODE") != "1":
         update_self_if_needed()
     
-    # Appel unifié et sécurisé
-    safe_main()  # Utilisez toujours safe_main() directement
+    try:
+        # Essai standard
+        main()
+    except NameError:
+        print("[ℹ️] Chargement alternatif du script principal...")
+        try:
+            from iptp import main
+            main()
+        except Exception as e:
+            print(f"[❌] Échec critique : {str(e)}")
+            sys.exit(1)
