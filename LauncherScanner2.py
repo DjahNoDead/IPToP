@@ -93,67 +93,94 @@ def get_self_path():
 
 
 def update_self_if_needed():
-    """Version finale avec protection renforcée"""
-    # Fichier lock pour détection première installation
+    """Version finale avec gestion parfaite des états"""
+    # Fichiers de contrôle
     INIT_FLAG = os.path.join(CACHE_DIR, ".initialized")
-    
-    # Mode première installation
+    UPDATE_LOCK = os.path.join(CACHE_DIR, ".update_lock")
+    UPDATE_DONE = os.path.join(CACHE_DIR, ".update_done")
+
+    # Première installation
     if not os.path.exists(INIT_FLAG):
         try:
             os.makedirs(CACHE_DIR, mode=0o700, exist_ok=True)
             with open(INIT_FLAG, "w") as f:
                 f.write("1")
-            print("[🛠️] Installation initiale détectée")
-            return False  # Saute la mise à jour lors du premier lancement
-        except:
-            pass
+            print("[🛠️] Configuration initiale terminée")
+            return False
+        except Exception as e:
+            print(f"[⚠️] Erreur initialisation: {str(e)}")
+            return False
 
-    # Vérification standard des mises à jour
-    LOCK_FILE = os.path.join(CACHE_DIR, ".update_lock")
-    if os.path.exists(LOCK_FILE) and (time.time() - os.path.getmtime(LOCK_FILE)) < 300:
+    # Vérifier si une mise à jour vient d'être faite
+    if os.path.exists(UPDATE_DONE):
+        update_time = os.path.getmtime(UPDATE_DONE)
+        if (time.time() - update_time) < 300:  # 5 minutes
+            print("[ℹ️] Mise à jour récente déjà effectuée")
+            return False
+
+    # Verrouillage pour éviter les conflits
+    if os.path.exists(UPDATE_LOCK):
+        print("[⏳] Mise à jour déjà en cours...")
         return False
-        
+
     try:
-        with open(LOCK_FILE, "w") as f:
+        # Création du verrou
+        with open(UPDATE_LOCK, "w") as f:
             f.write(str(os.getpid()))
-            
+
         display_banner()
-        print("[🔁] Vérification de mise à jour...")
+        print("[🔍] Vérification des mises à jour...")
 
         remote_version = get_remote_version()
         if not remote_version:
-            print("[⚠️] Impossible de vérifier la version")
-            os.remove(LOCK_FILE)
+            print("[⚠️] Impossible de contacter le serveur")
             return False
 
         if remote_version == VERSION:
             print(f"[✓] Version {VERSION} à jour")
-            os.remove(LOCK_FILE)
             return False
 
-        print(f"[⬆️] Nouvelle version {remote_version} disponible")
+        print(f"[🔄] Téléchargement de la v{remote_version}...")
         remote_code = get_remote_launcher()
         if not remote_code:
             print("[❌] Échec du téléchargement")
-            os.remove(LOCK_FILE)
             return False
 
-        # Processus atomique
-        temp_path = f"{get_self_path()}.tmp"
-        with open(temp_path, "w", encoding="utf-8") as f:
-            f.write(remote_code)
-        os.replace(temp_path, get_self_path())
+        # Processus atomique en 3 étapes
+        temp_file = f"{get_self_path()}.tmp"
+        backup_file = f"{get_self_path()}.bak"
         
-        print("[✅] Mise à jour réussie")
-        os.remove(LOCK_FILE)
-        os.execv(sys.executable, [sys.executable] + sys.argv)
-        return True
-        
-    except Exception as e:
-        print(f"[❌] Erreur: {str(e)}")
-        if os.path.exists(LOCK_FILE):
-            os.remove(LOCK_FILE)
-        return False
+        try:
+            # 1. Sauvegarde
+            if os.path.exists(get_self_path()):
+                os.rename(get_self_path(), backup_file)
+            
+            # 2. Nouvelle version
+            with open(temp_file, "w", encoding="utf-8") as f:
+                f.write(remote_code)
+                
+            # 3. Remplacement
+            os.rename(temp_file, get_self_path())
+            
+            # Marqueur de succès
+            with open(UPDATE_DONE, "w") as f:
+                f.write(str(time.time()))
+            
+            print("[✅] Mise à jour terminée avec succès")
+            os.execv(sys.executable, [sys.executable] + sys.argv)
+            return True
+            
+        except Exception as e:
+            # Restauration en cas d'échec
+            if os.path.exists(backup_file):
+                os.rename(backup_file, get_self_path())
+            print(f"[❌] Échec critique: {str(e)}")
+            return False
+            
+    finally:
+        # Nettoyage systématique
+        if os.path.exists(UPDATE_LOCK):
+            os.remove(UPDATE_LOCK)
         
 #===== Installateur automatique=====
 
