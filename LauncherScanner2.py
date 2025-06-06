@@ -3,6 +3,8 @@ import urllib.request
 import hashlib
 import importlib.util
 import sys
+import time
+import os
 
 # Couleurs ANSI pour la bannière
 COLOR_RED = "\033[91m"
@@ -91,23 +93,21 @@ def get_self_path():
 
 
 def update_self_if_needed():
-    """Version ultra-robuste avec gestion complète des erreurs"""
+    """Version corrigée avec double vérification"""
     # Fichier lock pour éviter les boucles
-    LOCK_FILE = os.path.join(CACHE_DIR, ".update_lock")
+    LOCK_FILE = os.path.join(CACHE_DIR, ".launcher_lock")
     
+    # Si lock existe et a moins de 5 minutes
+    if os.path.exists(LOCK_FILE) and (time.time() - os.path.getmtime(LOCK_FILE)) < 300:
+        return False
+        
     try:
-        # Vérifie si une mise à jour est déjà en cours
-        if os.path.exists(LOCK_FILE):
-            with open(LOCK_FILE, "r") as f:
-                if f.read().strip() == "1":  # Mise à jour en cours
-                    return False
-                    
+        # Création du lock
+        with open(LOCK_FILE, "w") as f:
+            f.write(str(os.getpid()))
+            
         display_banner()
         print("[🔁] Vérification de mise à jour du launcher...")
-
-        # Marque le début de la mise à jour
-        with open(LOCK_FILE, "w") as f:
-            f.write("1")
 
         remote_version = get_remote_version()
         if not remote_version:
@@ -124,20 +124,20 @@ def update_self_if_needed():
 
         remote_code = get_remote_launcher()
         if not remote_code:
-            print("[❌] Échec du téléchargement. Utilisation de la version locale.")
+            print("[❌] Échec du téléchargement. Annulation.")
             os.remove(LOCK_FILE)
             return False
 
-        # Écriture atomique en 3 étapes
+        # Écriture en 3 étapes sécurisées
         temp_path = f"{get_self_path()}.tmp"
         backup_path = f"{get_self_path()}.bak"
         
         try:
-            # 1. Sauvegarde de l'ancienne version
+            # 1. Sauvegarde
             if os.path.exists(get_self_path()):
                 os.rename(get_self_path(), backup_path)
                 
-            # 2. Écriture nouvelle version
+            # 2. Nouvelle version
             with open(temp_path, "w", encoding="utf-8") as f:
                 f.write(remote_code)
                 
@@ -398,58 +398,71 @@ def fix_permissions():
         print(f"[DEBUG] Erreur permissions: {str(e)}")
         return False
         
-def safe_main():
-    """Version sécurisée de la fonction principale"""
+def main():
+    """Fonction principale avec gestion robuste des mises à jour"""
     try:
-        if not getattr(safe_main, "_banner_displayed", False):
+        # Initialisation
+        if not getattr(main, "_init_done", False):
             display_banner()
-            safe_main._banner_displayed = True
+            main._init_done = True
+            time.sleep(1)
+            print("[🚀] Initialisation du système...")
 
-        time.sleep(2)
-        print("[🚀] Script lancé.")
+        # Installation des dépendances
         install_missing_modules(required_modules)
+        
+        # Nettoyage en arrière-plan
         threading.Thread(target=clean_old_versions, daemon=True).start()
 
+        # Vérification mise à jour script principal
         remote_version = get_script_remote_version()
         local_version = load_local_script_version()
 
         if remote_version and remote_version != local_version:
-            print(f"[⬇️] Mise à jour du script principal (v{remote_version})...")
+            print(f"[⬇️] Mise à jour du script (v{remote_version})...")
             script = download_script()
+            
             if script:
-                save_encrypted(script)
-                save_local_script_version(remote_version)
-                exec(script, globals())
-                return
+                # Sauvegarde de l'ancienne version
+                if os.path.exists(CACHE_PATH):
+                    os.rename(CACHE_PATH, f"{CACHE_PATH}.backup")
+                
+                # Nouvelle version
+                if save_encrypted(script):
+                    save_local_script_version(remote_version)
+                    exec(script, globals())
+                    return
+                else:
+                    # Restauration si échec
+                    if os.path.exists(f"{CACHE_PATH}.backup"):
+                        os.rename(f"{CACHE_PATH}.backup", CACHE_PATH)
+                    print("[⚠️] Échec de sauvegarde, version précédente restaurée")
 
-        script = load_encrypted()
-        if script:
-            exec(script, globals())
+        # Chargement depuis cache
+        cached_script = load_encrypted()
+        if cached_script:
+            exec(cached_script, globals())
             return
 
-        print("\n[ERREUR] Aucun script disponible")
-        sys.exit(1)
-    except Exception as e:
-        print(f"\n[ERREUR CRITIQUE] {str(e)}")
-        sys.exit(1)
+        # Mode urgence si tout échoue
+        print("\n[❌] Aucune version valide disponible")
+        if os.path.exists(f"{CACHE_PATH}.backup"):
+            print("[⚠️] Tentative de restauration d'urgence...")
+            os.rename(f"{CACHE_PATH}.backup", CACHE_PATH)
+            main()  # Réessaye avec la version sauvegardée
+        else:
+            sys.exit(1)
 
-# Ajoutez cette fonction pour la compatibilité
-def main():
-    """Alias pour safe_main() pour la compatibilité"""
-    safe_main()
+    except Exception as e:
+        print(f"\n[💥] ERREUR: {str(e)}")
+        sys.exit(1)
 
 if __name__ == "__main__":
-    if os.environ.get("IPT_RECOVERY_MODE") != "1":
-        update_self_if_needed()
+    # Gestion des mises à jour du launcher
+    if os.environ.get("IPT_UPDATE_DONE") != "1":
+        if update_self_if_needed():  # Si mise à jour effectuée
+            os.environ["IPT_UPDATE_DONE"] = "1"
+            os.execv(sys.executable, [sys.executable] + sys.argv)
     
-    try:
-        # Essai standard
-        main()
-    except NameError:
-        print("[ℹ️] Chargement alternatif du script principal...")
-        try:
-            from iptp import main
-            main()
-        except Exception as e:
-            print(f"[❌] Échec critique : {str(e)}")
-            sys.exit(1)
+    # Lancement principal
+    main()
