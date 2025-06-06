@@ -385,12 +385,12 @@ def fix_permissions():
         
 # ===== MODIFICATIONS REQUISES =====
 
-def safe_main():
-    """Version sécurisée de la fonction main"""
+def main():
+    """VOTRE FONCTION PRINCIPALE EXISTANTE"""
     try:
-        if not getattr(safe_main, "_banner_displayed", False):
+        if not getattr(main, "_banner_displayed", False):
             display_banner()
-            safe_main._banner_displayed = True
+            main._banner_displayed = True
 
         time.sleep(2)
         print("[🚀] Script lancé.")
@@ -423,10 +423,11 @@ def safe_main():
         sys.exit(1)
 
 if __name__ == "__main__":
+    # 1. Gestion des mises à jour (inchangée)
     if os.environ.get("IPT_UPDATE_DONE") != "1":
         if update_self_if_needed():
             os.environ["IPT_UPDATE_DONE"] = "1"
             os.execv(sys.executable, [sys.executable] + sys.argv)
     
-    # Appel direct sans vérification inutile
-    safe_main()  # Utilisez toujours safe_main() comme point d'entrée
+    # 2. Appel DIRECT à main() sans vérification inutile
+    main()
