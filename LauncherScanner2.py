@@ -62,30 +62,46 @@ def get_self_path():
 
 
 def update_self_if_needed():
-    display_banner()
-    print("[🔁] Vérification de mise à jour du launcher...")
-
-    remote_version = get_remote_version()
-    if not remote_version:
-        print("[⚠️] Impossible de vérifier la version distante.")
+    """Version corrigée avec protection renforcée"""
+    # Protection contre les redémarrages infinis
+    if hasattr(sys, '_launcher_updated'):
         return False
-
-    if remote_version == VERSION:
-        print(f"[✓] Launcher à jour (v{VERSION})")
-        return False
-
-    print(f"[⬆️] Nouvelle version détectée (v{remote_version}) → mise à jour...")
-
-    remote_code = get_remote_launcher()
-    if not remote_code:
-        print("[❌] Échec du téléchargement de la nouvelle version.")
-        return False
-
+        
     try:
-        with open(get_self_path(), "w", encoding="utf-8") as f:
+        display_banner()
+        print("[🔁] Vérification de mise à jour du launcher...")
+
+        remote_version = get_remote_version()
+        if not remote_version:
+            print("[⚠️] Impossible de vérifier la version distante.")
+            return False
+
+        if remote_version == VERSION:
+            print(f"[✓] Launcher à jour (v{VERSION})")
+            return False
+
+        print(f"[⬆️] Nouvelle version détectée (v{remote_version}) → mise à jour...")
+
+        remote_code = get_remote_launcher()
+        if not remote_code:
+            print("[❌] Échec du téléchargement de la nouvelle version.")
+            return False
+
+        # Écriture atomique avec fichier temporaire
+        temp_path = f"{get_self_path()}.tmp"
+        with open(temp_path, "w", encoding="utf-8") as f:
             f.write(remote_code)
+        
+        # Remplacement atomique
+        os.replace(temp_path, get_self_path())
+        
+        # Marqueur de mise à jour réussie
+        sys._launcher_updated = True
+        
         print("[✅] Mise à jour réussie. Redémarrage...")
         os.execv(sys.executable, [sys.executable] + sys.argv)
+        return True
+        
     except Exception as e:
         print(f"[❌] Erreur durant la mise à jour : {str(e)}")
         return False
