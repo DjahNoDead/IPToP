@@ -66,42 +66,48 @@ def get_self_path():
     return os.path.abspath(__file__)
 
 def update_self_if_needed():
-    """Version corrigée avec protection anti-boucle"""
-    # Protection contre les boucles
-    if hasattr(sys, '_updated'):
+    """Version corrigée avec protection renforcée"""
+    # Protection contre les redémarrages infinis
+    if hasattr(sys, '_launcher_updated'):
         return False
-    sys._updated = True
-    
-    try:
-        print("[🔁] Vérification de mise à jour...")
-        remote_version = get_remote_version()
         
+    try:
+        display_banner()
+        print("[🔁] Vérification de mise à jour du launcher...")
+
+        remote_version = get_remote_version()
         if not remote_version:
-            print("[⚠️] Impossible de vérifier la version")
-            return False
-            
-        if remote_version == VERSION:
-            print(f"[✓] Version {VERSION} à jour")
-            return False
-            
-        print(f"[⬆️] Nouvelle version {remote_version} disponible")
-        new_code = get_remote_launcher()
-        if not new_code:
-            print("[❌] Échec du téléchargement")
+            print("[⚠️] Impossible de vérifier la version distante.")
             return False
 
-        # Écriture atomique
-        temp_file = f"{os.path.abspath(__file__)}.tmp"
-        with open(temp_file, "w", encoding="utf-8") as f:
-            f.write(new_code)
-        os.replace(temp_file, os.path.abspath(__file__))
+        if remote_version == VERSION:
+            print(f"[✓] Launcher à jour (v{VERSION})")
+            return False
+
+        print(f"[⬆️] Nouvelle version détectée (v{remote_version}) → mise à jour...")
+
+        remote_code = get_remote_launcher()
+        if not remote_code:
+            print("[❌] Échec du téléchargement de la nouvelle version.")
+            return False
+
+        # Écriture atomique avec fichier temporaire
+        temp_path = f"{get_self_path()}.tmp"
+        with open(temp_path, "w", encoding="utf-8") as f:
+            f.write(remote_code)
         
-        print("[✅] Mise à jour réussie")
+        # Remplacement atomique
+        os.replace(temp_path, get_self_path())
+        
+        # Marqueur de mise à jour réussie
+        sys._launcher_updated = True
+        
+        print("[✅] Mise à jour réussie. Redémarrage...")
         os.execv(sys.executable, [sys.executable] + sys.argv)
         return True
         
     except Exception as e:
-        print(f"[❌] Erreur: {str(e)}")
+        print(f"[❌] Erreur durant la mise à jour : {str(e)}")
         return False
 
 #===== Installateur automatique=====
