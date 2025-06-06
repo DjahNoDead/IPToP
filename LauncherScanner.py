@@ -386,7 +386,7 @@ def fix_permissions():
 # ===== MODIFICATIONS REQUISES =====
 
 def safe_main():
-    """VOTRE ANCIENNE FONCTION EXACTEMENT COMME VOUS L'AVIEZ"""
+    """Version sécurisée de la fonction main"""
     try:
         if not getattr(safe_main, "_banner_displayed", False):
             display_banner()
@@ -422,13 +422,18 @@ def safe_main():
         print(f"\n[ERREUR CRITIQUE] {str(e)}")
         sys.exit(1)
 
-# === NOUVEAU BLOC D'EXÉCUTION SIMPLIFIÉ ===
 if __name__ == "__main__":
-    # Étape 1: Mise à jour du launcher
-    if os.environ.get("IPT_UPDATE_DONE") != "1":
-        if update_self_if_needed():  # Si mise à jour effectuée
-            os.environ["IPT_UPDATE_DONE"] = "1"
-            os.execv(sys.executable, [sys.executable] + sys.argv)
+    if os.environ.get("IPT_RECOVERY_MODE") != "1":
+        update_self_if_needed()
     
-    # Étape 2: Exécution principale
-    safe_main()  # Appel DIRECT sans vérification de 'main'
+    # Remplacez l'appel à main() par :
+    try:
+        if 'main' in globals():
+            main()
+        else:
+            print("[⚠️] Fonction main() non trouvée. Chargement en mode recovery.")
+            from iptp import main  # Suppose que le script principal s'appelle iptp.py
+            main()
+    except Exception as e:
+        print(f"[❌] Erreur critique : {str(e)}")
+        sys.exit(1)
