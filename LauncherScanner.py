@@ -423,17 +423,10 @@ def safe_main():
         sys.exit(1)
 
 if __name__ == "__main__":
-    if os.environ.get("IPT_RECOVERY_MODE") != "1":
-        update_self_if_needed()
+    if os.environ.get("IPT_UPDATE_DONE") != "1":
+        if update_self_if_needed():
+            os.environ["IPT_UPDATE_DONE"] = "1"
+            os.execv(sys.executable, [sys.executable] + sys.argv)
     
-    # Remplacez l'appel à main() par :
-    try:
-        if 'main' in globals():
-            main()
-        else:
-            print("[⚠️] Fonction main() non trouvée. Chargement en mode recovery.")
-            from iptp import main  # Suppose que le script principal s'appelle iptp.py
-            main()
-    except Exception as e:
-        print(f"[❌] Erreur critique : {str(e)}")
-        sys.exit(1)
+    # Appel direct sans vérification inutile
+    safe_main()  # Utilisez toujours safe_main() comme point d'entrée
