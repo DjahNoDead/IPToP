@@ -1,6 +1,8 @@
 # ===== Auto-update du launcher =====
 import urllib.request
 import hashlib
+import importlib.util
+import sys
 
 # Couleurs ANSI pour la bannière
 COLOR_RED = "\033[91m"
@@ -35,6 +37,33 @@ LAUNCHER_URL = "https://raw.githubusercontent.com/DjahNoDead/IPToP/main/Launcher
 SCRIPT_VERSION = "Basique"
 SCRIPT_URL = "https://raw.githubusercontent.com/DjahNoDead/IPToP/main/iptp.py"
 SCRIPT_VERSION_URL = "https://raw.githubusercontent.com/DjahNoDead/IPToP/main/versionScan.txt"
+
+def load_main_function():
+    """Charge la fonction main() de manière sécurisée"""
+    try:
+        # Essayer depuis le module courant
+        if 'main' in globals():
+            return globals()['main']
+        
+        # Essayer depuis le script principal (iptp.py)
+        spec = importlib.util.spec_from_file_location("iptp", "iptp.py")
+        if spec and spec.loader:
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            if hasattr(module, 'main'):
+                return module.main
+        
+        # Fallback basique
+        def fallback_main():
+            print("[ℹ️] Mode recovery - exécution minimale")
+            # Ajoutez ici le strict minimum pour que votre script fonctionne
+            from iptp import main as real_main
+            real_main()
+        
+        return fallback_main
+    except Exception as e:
+        print(f"[⚠️] Erreur de chargement: {str(e)}")
+        sys.exit(1)
 
 def get_script_remote_version():
     try:
