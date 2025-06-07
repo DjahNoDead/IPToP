@@ -34,7 +34,7 @@ https://t.me/+44xRl7P_SoBkOTVk
 
 VERSION = "Basique"  # Version locale actuelle
 VERSION_URL = "https://raw.githubusercontent.com/DjahNoDead/IPToP/main/versionLaun.txt"
-LAUNCHER_URL = "https://raw.githubusercontent.com/DjahNoDead/IPToP/main/LauncherScanner2.py"
+LAUNCHER_URL = "https://raw.githubusercontent.com/DjahNoDead/IPToP/main/LauncherScanner.py"
 
 SCRIPT_VERSION = "Basique"
 SCRIPT_URL = "https://raw.githubusercontent.com/DjahNoDead/IPToP/main/iptp.py"
