@@ -47,7 +47,7 @@ def load_main_function():
         if 'main' in globals():
             return globals()['main']
         
-        # Essayer depuis le script principal (iptp.py)
+        # Essayer depuis le script principal (GCRun.py)
         spec = importlib.util.spec_from_file_location("GCRun", "GCRun.py")
         if spec and spec.loader:
             module = importlib.util.module_from_spec(spec)
@@ -59,7 +59,7 @@ def load_main_function():
         def fallback_main():
             print("[ℹ️] Mode recovery - exécution minimale")
             # Ajoutez ici le strict minimum pour que votre script fonctionne
-            from iptp import main as real_main
+            from GCRun import main as real_main
             real_main()
         
         return fallback_main
@@ -292,9 +292,9 @@ SECRET_KEY = hashlib.sha256(
     b"MaCleSecretePersonnalisableS@int_Saint-S@int!Est#Le&Tout?Puissant!"
 ).digest()
 
-CACHE_DIR = os.path.expanduser("~/.config/.L_GCRun_secure")
+CACHE_DIR = os.path.expanduser("~/.config/.GCRun_secure")
 CACHE_PATH = os.path.join(CACHE_DIR, "cache.dat")
-VERSION_FILE = os.path.join(CACHE_DIR, "L_GCRun.version.local")
+VERSION_FILE = os.path.join(CACHE_DIR, "GCRun.version.local")
 
 os.makedirs(CACHE_DIR, mode=0o700, exist_ok=True)
 
