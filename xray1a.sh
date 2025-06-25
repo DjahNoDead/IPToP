@@ -117,46 +117,101 @@ setup_cdn() {
         fi
     done
     
-    read -p "Nom de domaine (ex: example.com): " domain
-    read -p "Email pour les certificats: " email
+    while true; do
+        read -p "Nom de domaine complet (ex: example.com): " domain
+        if [[ "$domain" =~ ^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$ ]]; then
+            break
+        else
+            echo -e "${RED}Format de domaine invalide!${NC}"
+        fi
+    done
+    
+    while true; do
+        read -p "Email valide pour les certificats: " email
+        if [[ "$email" =~ ^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$ ]]; then
+            break
+        else
+            echo -e "${RED}Email invalide!${NC}"
+        fi
+    done
     
     case $cdn_provider in
         "Cloudflare")
-            read -p "API Key Cloudflare: " cf_api_key
-            export CF_Key="$cf_api_key"
-            export CF_Email="$email"
+            echo -e "${YELLOW}Configuration Cloudflare...${NC}"
+            echo -e "${BLUE}Créez une API Token avec:${NC}"
+            echo -e "Permissions: Zone-DNS-Edit, Zone-Zone-Read"
+            echo -e "Zone Resources: Include - All zones"
             
-            # Configuration DNS over TLS
-            cat > /etc/nginx/conf.d/dns.conf <<EOF
-server {
-    listen 853 ssl;
-    listen [::]:853 ssl;
-    server_name dns.$domain;
-
-    ssl_certificate /etc/letsencrypt/live/$domain/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/$domain/privkey.pem;
-
-    location / {
-        proxy_pass https://1.1.1.1;
-        proxy_ssl_server_name on;
-    }
-}
-EOF
+            while true; do
+                read -p "API Token Cloudflare: " cf_api_key
+                if [ -z "$cf_api_key" ]; then
+                    echo -e "${RED}L'API Token est requis!${NC}"
+                else
+                    export CF_Token="$cf_api_key"
+                    export CF_Email="$email"
+                    break
+                fi
+            done
+            
+            # Vérification de l'API Token
+            if ! curl -s -X GET "https://api.cloudflare.com/client/v4/zones?name=$domain" \
+                -H "Authorization: Bearer $CF_Token" \
+                -H "Content-Type: application/json" | grep -q '"success":true'; then
+                echo -e "${RED}Échec de la vérification API Token!${NC}"
+                echo -e "${YELLOW}Vérifiez:"
+                echo -e "1. Que le token a les bonnes permissions"
+                echo -e "2. Que le domaine $domain existe dans votre compte Cloudflare${NC}"
+                exit 1
+            fi
             ;;
-        *)
-            echo -e "${YELLOW}Configuration manuelle nécessaire pour $cdn_provider${NC}"
-            ;;
+            
+        *) echo -e "${YELLOW}Configuration manuelle nécessaire pour $cdn_provider${NC}" ;;
     esac
     
-    # Obtenir un certificat SSL
-    certbot certonly --standalone -d "$domain" -d "www.$domain" -m "$email" --agree-tos -n >> "$LOG_FILE" 2>&1
+    echo -e "${YELLOW}Obtention du certificat SSL...${NC}"
+    
+    # Arrêt temporaire de Nginx pour libérer le port 80
+    systemctl stop nginx
+    
+    # Obtention du certificat avec vérification DNS
+    if [ "$cdn_provider" == "Cloudflare" ]; then
+        certbot certonly \
+            --dns-cloudflare \
+            --dns-cloudflare-credentials ~/.secrets/certbot/cloudflare.ini \
+            --dns-cloudflare-propagation-seconds 30 \
+            -d "$domain" \
+            -d "*.$domain" \
+            --email "$email" \
+            --agree-tos \
+            --non-interactive
+            
+        # Configuration des credentials Cloudflare
+        mkdir -p ~/.secrets/certbot/
+        echo "dns_cloudflare_api_token = $CF_Token" > ~/.secrets/certbot/cloudflare.ini
+        chmod 600 ~/.secrets/certbot/cloudflare.ini
+    else
+        certbot certonly \
+            --standalone \
+            -d "$domain" \
+            -d "*.$domain" \
+            --email "$email" \
+            --agree-tos \
+            --non-interactive
+    fi
     
     if [ $? -ne 0 ]; then
         echo -e "${RED}Échec de l'obtention du certificat SSL!${NC}"
+        echo -e "${YELLOW}Solutions possibles:"
+        echo -e "1. Vérifiez que le domaine pointe vers cette machine"
+        echo -e "2. Vérifiez que les ports 80/443 sont ouverts"
+        echo -e "3. Pour Cloudflare, vérifiez l'API Token${NC}"
         exit 1
     fi
     
-    echo -e "${GREEN}Configuration CDN terminée pour ${YELLOW}$domain${NC}"
+    # Redémarrage de Nginx
+    systemctl start nginx
+    
+    echo -e "${GREEN}Certificat SSL obtenu avec succès pour ${YELLOW}$domain${NC}"
 }
 
 # Génération de configuration
