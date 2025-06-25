@@ -1,32 +1,174 @@
 #!/bin/bash
 
-# =============================================
-# Script d'installation V2Ray Premium FR
-# Version: 2.1
-# Auteur: Expert en réseaux
-# Dernière mise à jour: $(date +"%Y-%m-%d")
-# =============================================
-
 # Configuration des couleurs
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[0;33m'
 BLUE='\033[0;34m'
-MAGENTA='\033[0;35m'
-CYAN='\033[0;36m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
 # Variables globales
 CONFIG_FILE="/etc/v2ray/config.json"
-SERVICE_FILE="/etc/systemd/system/v2ray.service"
-LOG_FILE="/var/log/v2ray-install.log"
-OS=""
-OS_VERSION=""
-ARCH=""
-INSTALL_MODE=""
 PROTOCOLS=("VMess" "VLESS" "Trojan" "Shadowsocks")
-TRANSPORTS=("TCP" "WebSocket" "gRPC" "HTTP/2")
-TLS_MODES=("TLS" "None" "Reality")
+TRANSPORTS=("tcp" "ws" "grpc" "h2")
+TLS_MODES=("tls" "none" "reality")
+
+# Fonction pour afficher les menus correctement
+show_menu() {
+    clear
+    local title="$1"
+    local options=("${!2}")
+    
+    echo -e "${GREEN}=== ${title} ===${NC}"
+    for i in "${!options[@]}"; do
+        echo -e "$((i+1)). ${YELLOW}${options[$i]}${NC}"
+    done
+}
+
+# Version corrigée de select_protocol
+select_protocol() {
+    show_menu "Choix du protocole" PROTOCOLS[@]
+    
+    while true; do
+        read -p "Votre choix [1-${#PROTOCOLS[@]}]: " choice
+        if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "${#PROTOCOLS[@]}" ]; then
+            local protocol=${PROTOCOLS[$((choice-1))]}
+            echo -e "${GREEN}Protocole sélectionné: ${YELLOW}$protocol${NC}"
+            echo "${protocol,,}"  # Retourne en minuscules
+            break
+        else
+            echo -e "${RED}Choix invalide!${NC}"
+        fi
+    done
+}
+
+# Version corrigée de configure_v2ray
+configure_v2ray() {
+    local protocol=$1
+    local port=$2
+    local uuid_or_password=$3
+    local transport=$4
+    local tls_mode=$5
+    
+    # Conversion en minuscules pour la compatibilité
+    protocol=${protocol,,}
+    transport=${transport,,}
+    tls_mode=${tls_mode,,}
+
+    log "Configuration de V2Ray avec $protocol sur $port via $transport ($tls_mode)"
+    
+    case $protocol in
+        "vmess")
+            generate_vmess_config "$port" "$uuid_or_password" "$transport" "$tls_mode"
+            ;;
+        "vless")
+            generate_vless_config "$port" "$uuid_or_password" "$transport" "$tls_mode"
+            ;;
+        "trojan")
+            generate_trojan_config "$port" "$uuid_or_password" "$transport" "$tls_mode"
+            ;;
+        "shadowsocks")
+            generate_shadowsocks_config "$port" "$uuid_or_password" "$transport" "$tls_mode"
+            ;;
+        *)
+            echo -e "${RED}Erreur critique: Protocole $protocol non implémenté${NC}"
+            exit 1
+            ;;
+    esac
+}
+
+# Fonction d'installation complète corrigée
+complete_installation() {
+    clear
+    echo -e "${GREEN}=== Installation de V2Ray ===${NC}"
+    
+    # 1. Sélection du protocole
+    protocol=$(select_protocol)
+    
+    # 2. Sélection du port
+    while true; do
+        read -p "Port à utiliser [défaut: 443]: " port
+        port=${port:-443}
+        if [[ "$port" =~ ^[0-9]+$ ]] && [ "$port" -ge 1 ] && [ "$port" -le 65535 ]; then
+            if ! netstat -tuln | grep -q ":${port} "; then
+                break
+            else
+                echo -e "${RED}Le port $port est déjà utilisé!${NC}"
+            fi
+        else
+            echo -e "${RED}Port invalide!${NC}"
+        fi
+    done
+    
+    # 3. Génération des identifiants
+    if [ "$protocol" == "trojan" ]; then
+        password=$(generate_password)
+        echo -e "${GREEN}Mot de passe généré: ${YELLOW}$password${NC}"
+        id_value=$password
+    else
+        uuid=$(generate_uuid)
+        echo -e "${GREEN}UUID généré: ${YELLOW}$uuid${NC}"
+        id_value=$uuid
+    fi
+    
+    # 4. Sélection du transport
+    show_menu "Choix du transport" TRANSPORTS[@]
+    transport=$(select_transport)
+    
+    # 5. Sélection du mode TLS
+    show_menu "Choix de la sécurité" TLS_MODES[@]
+    tls_mode=$(select_tls_mode)
+    
+    # Récapitulatif final
+    echo -e "${GREEN}=== Configuration finale ===${NC}"
+    echo -e "• Protocole: ${YELLOW}$protocol${NC}"
+    echo -e "• Port: ${YELLOW}$port${NC}"
+    echo -e "• Identifiant: ${YELLOW}$id_value${NC}"
+    echo -e "• Transport: ${YELLOW}$transport${NC}"
+    echo -e "• Sécurité: ${YELLOW}$tls_mode${NC}"
+    echo
+    
+    read -p "Confirmer l'installation (o/N)? " confirm
+    [[ "$confirm" =~ ^[oO]$ ]] || { echo -e "${RED}Installation annulée.${NC}"; exit 1; }
+    
+    # Installation
+    echo -e "${YELLOW}Installation en cours...${NC}"
+    install_dependencies
+    install_v2ray
+    configure_v2ray "$protocol" "$port" "$id_value" "$transport" "$tls_mode"
+    
+    echo -e "${GREEN}=== Installation réussie ===${NC}"
+    echo -e "Fichier de configuration: ${YELLOW}$CONFIG_FILE${NC}"
+}
+
+# Fonctions manquantes à ajouter
+select_transport() {
+    while true; do
+        read -p "Votre choix [1-${#TRANSPORTS[@]}]: " choice
+        if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "${#TRANSPORTS[@]}" ]; then
+            local transport=${TRANSPORTS[$((choice-1))]}
+            echo -e "${GREEN}Transport sélectionné: ${YELLOW}$transport${NC}"
+            echo "$transport"
+            break
+        else
+            echo -e "${RED}Choix invalide!${NC}"
+        fi
+    done
+}
+
+select_tls_mode() {
+    while true; do
+        read -p "Votre choix [1-${#TLS_MODES[@]}]: " choice
+        if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "${#TLS_MODES[@]}" ]; then
+            local tls_mode=${TLS_MODES[$((choice-1))]}
+            echo -e "${GREEN}Mode sélectionné: ${YELLOW}$tls_mode${NC}"
+            echo "$tls_mode"
+            break
+        else
+            echo -e "${RED}Choix invalide!${NC}"
+        fi
+    done
+}
 
 # Initialisation du journal d'installation
 init_log() {
@@ -129,48 +271,6 @@ install_v2ray() {
     fi
     
     log "V2Ray installé avec succès"
-}
-
-# Configuration de base de V2Ray
-configure_v2ray() {
-    local protocol=$1
-    local port=$2
-    local uuid=$3
-    local transport=$4
-    local tls_mode=$5
-    
-    log "Configuration de V2Ray avec $protocol sur le port $port"
-    
-    echo -e "${YELLOW}Création de la configuration V2Ray...${NC}"
-    
-    # Sauvegarde de l'ancienne configuration
-    if [ -f "$CONFIG_FILE" ]; then
-        mv "$CONFIG_FILE" "$CONFIG_FILE.bak"
-    fi
-    
-    # Génération du fichier de configuration
-    case $protocol in
-        VMess|vmess)
-            generate_vmess_config "$port" "$uuid" "$transport" "$tls_mode" ;;
-        VLESS|vless)
-            generate_vless_config "$port" "$uuid" "$transport" "$tls_mode" ;;
-        Trojan|trojan)
-            generate_trojan_config "$port" "$uuid" "$transport" "$tls_mode" ;;
-        *)
-            echo -e "${RED}Protocole non supporté!${NC}"
-            exit 1 ;;
-    esac
-    
-    # Redémarrage du service
-    systemctl restart v2ray >> "$LOG_FILE" 2>&1
-    systemctl enable v2ray >> "$LOG_FILE" 2>&1
-    
-    if [ $? -ne 0 ]; then
-        echo -e "${RED}Échec du démarrage du service V2Ray!${NC}"
-        exit 1
-    fi
-    
-    log "Configuration V2Ray terminée avec succès"
 }
 
 # Génération de configuration VMess
@@ -302,134 +402,6 @@ check_port() {
     fi
     
     return 0
-}
-
-# Menu de sélection du protocole (version corrigée)
-select_protocol() {
-    clear
-    echo -e "${GREEN}=== Choix du protocole ===${NC}"
-    for i in "${!PROTOCOLS[@]}"; do
-        echo -e "$((i+1)). ${YELLOW}${PROTOCOLS[$i]}${NC}"
-    done
-    
-    while true; do
-        echo
-        read -p "Votre choix [1-${#PROTOCOLS[@]}]: " choice
-        if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "${#PROTOCOLS[@]}" ]; then
-            selected_protocol=${PROTOCOLS[$((choice-1))]}
-            echo -e "${GREEN}Protocole sélectionné : ${YELLOW}$selected_protocol${NC}"
-            break
-        else
-            echo -e "${RED}Choix invalide!${NC}"
-        fi
-    done
-    
-    echo "$selected_protocol" | tr '[:upper:]' '[:lower:]'  # Conversion en minuscules pour la compatibilité
-}
-
-# Fonction complete_installation corrigée
-complete_installation() {
-    clear
-    echo -e "${GREEN}=== Installation de V2Ray ===${NC}"
-    
-    # Sélection du protocole avec affichage clair
-    protocol=$(select_protocol)
-    
-    # Sélection du port avec vérification
-    while true; do
-        echo
-        read -p "Port à utiliser [défaut: 443]: " port
-        port=${port:-443}
-        if check_port "$port"; then
-            echo -e "${GREEN}Port sélectionné : ${YELLOW}$port${NC}"
-            break
-        else
-            echo -e "${RED}Ce port n'est pas disponible!${NC}"
-        fi
-    done
-    
-    # Génération des identifiants
-    if [ "$protocol" == "trojan" ]; then
-        read -p "Mot de passe Trojan [laissez vide pour générer]: " password
-        password=${password:-$(generate_password)}
-        echo -e "${GREEN}Mot de passe : ${YELLOW}$password${NC}"
-    else
-        read -p "UUID [laissez vide pour générer]: " uuid
-        uuid=${uuid:-$(generate_uuid)}
-        echo -e "${GREEN}UUID : ${YELLOW}$uuid${NC}"
-    fi
-    
-    # Sélection du transport
-    transport=$(select_transport)
-    
-    # Sélection du mode TLS
-    tls_mode=$(select_tls_mode)
-    
-    # Récapitulatif final
-    echo -e "${GREEN}=== Récapitulatif ===${NC}"
-    echo -e "Protocole : ${YELLOW}$protocol${NC}"
-    echo -e "Port : ${YELLOW}$port${NC}"
-    [ "$protocol" == "trojan" ] && echo -e "Mot de passe : ${YELLOW}$password${NC}" || echo -e "UUID : ${YELLOW}$uuid${NC}"
-    echo -e "Transport : ${YELLOW}$transport${NC}"
-    echo -e "Sécurité : ${YELLOW}$tls_mode${NC}"
-    
-    read -p "Confirmer l'installation (o/N)? " confirm
-    [[ "$confirm" =~ ^[oO]$ ]] || { echo "Annulation."; exit 1; }
-    
-    # Installation
-    install_dependencies
-    install_v2ray
-    
-    # Utilisation de la bonne variable pour Trojan
-    if [ "$protocol" == "trojan" ]; then
-        configure_v2ray "$protocol" "$port" "$password" "$transport" "$tls_mode"
-    else
-        configure_v2ray "$protocol" "$port" "$uuid" "$transport" "$tls_mode"
-    fi
-    
-    # Message final
-    echo -e "${GREEN}=== Installation réussie ===${NC}"
-    echo -e "Configuration sauvegardée dans : ${YELLOW}$CONFIG_FILE${NC}"
-}
-
-# Menu de sélection du transport
-select_transport() {
-    echo -e "${GREEN}Transports disponibles:${NC}"
-    for i in "${!TRANSPORTS[@]}"; do
-        echo "$((i+1)). ${TRANSPORTS[$i]}"
-    done
-    
-    while true; do
-        read -p "Choisissez un transport [1-${#TRANSPORTS[@]}]: " choice
-        if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "${#TRANSPORTS[@]}" ]; then
-            selected_transport=${TRANSPORTS[$((choice-1))]}
-            break
-        else
-            echo -e "${RED}Choix invalide!${NC}"
-        fi
-    done
-    
-    echo "$selected_transport" | tr '[:upper:]' '[:lower:]'
-}
-
-# Menu de sélection du mode TLS
-select_tls_mode() {
-    echo -e "${GREEN}Modes de sécurité disponibles:${NC}"
-    for i in "${!TLS_MODES[@]}"; do
-        echo "$((i+1)). ${TLS_MODES[$i]}"
-    done
-    
-    while true; do
-        read -p "Choisissez un mode de sécurité [1-${#TLS_MODES[@]}]: " choice
-        if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "${#TLS_MODES[@]}" ]; then
-            selected_tls_mode=${TLS_MODES[$((choice-1))]}
-            break
-        else
-            echo -e "${RED}Choix invalide!${NC}"
-        fi
-    done
-    
-    echo "$selected_tls_mode" | tr '[:upper:]' '[:lower:]'
 }
 
 # Menu principal
