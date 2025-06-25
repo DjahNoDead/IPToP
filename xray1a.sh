@@ -105,6 +105,14 @@ install_xray() {
 
 # Configuration CDN
 setup_cdn() {
+    # Vérifie que le certificat a bien été émis
+    if [ ! -f "/etc/letsencrypt/live/$domain/fullchain.pem" ]; then
+        echo -e "${RED}ERREUR: Le certificat n'a pas été généré!${NC}"
+        echo -e "${YELLOW}Solutions:"
+        echo -e "1. Vérifiez les logs: journalctl -u certbot"
+        echo -e "2. Testez manuellement: certbot certonly --dry-run ...${NC}"
+        exit 1
+    fi
     show_menu "Configuration CDN" CDN_PROVIDERS[@]
     
     while true; do
