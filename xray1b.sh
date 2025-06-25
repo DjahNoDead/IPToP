@@ -274,12 +274,16 @@ setup_cdn() {
     systemctl stop nginx xray 2>/dev/null
     
     # Construction de la commande certbot
-    local cert_cmd=()
-    if [ "$cdn_provider" == "Cloudflare" ]; then
-        cert_cmd=(certbot certonly --dns-cloudflare --dns-cloudflare-credentials ~/.secrets/certbot/cloudflare.ini -d "$domain" --non-interactive --agree-tos --email "$email")
-    else
-        cert_cmd=(certbot certonly --standalone -d "$domain" --non-interactive --agree-tos --email "$email")
-    fi
+	local cert_cmd=(certbot certonly --dns-cloudflare --dns-cloudflare-credentials ~/.secrets/certbot/cloudflare.ini \
+	  -d "$domain" --non-interactive --agree-tos --email "$email" --preferred-challenges dns-01)
+
+	echo -e "${BLUE}ℹ Exécution de: ${cert_cmd[@]}${NC}"
+	if ! "${cert_cmd[@]}"; then
+	  echo -e "${RED}⨉ Échec de l'obtention du certificat!${NC}"
+	  echo -e "${YELLOW}Message d'erreur complet :${NC}"
+	  journalctl -u certbot --no-pager -n 20 | grep -i error
+	  exit 1
+	fi
     
     # Exécution avec gestion des erreurs
     echo -e "${BLUE}ℹ Commande exécutée :${NC}\n${cert_cmd[*]}"
