@@ -273,38 +273,36 @@ setup_cdn() {
     
     # Construction de la commande certbot
     local cert_cmd=()
-    if [ "$cdn_provider" == "Cloudflare" ]; then
-        cert_cmd=(
-            certbot certonly
-            --dns-cloudflare
-            --dns-cloudflare-credentials ~/.secrets/certbot/cloudflare.ini
-            --dns-cloudflare-propagation-seconds 30
-            -d "$domain"
-            --email "$email"
-            --agree-tos
-            --non-interactive
-            --keep-until-expiring
-            --preferred-chain "ISRG Root X1"
-            --key-type ecdsa
-            --elliptic-curve secp384r1
-        )
-        
-        # Ajout du wildcard si le domaine est de 2e niveau
-        if [[ "$domain" =~ ^[a-zA-Z0-9-]+\.[a-zA-Z]{2,}$ ]]; then
-            cert_cmd+=(-d "*.$domain")
-        fi
-    else
-        cert_cmd=(
-            certbot certonly
-            --standalone
-            --preferred-challenges http
-            -d "$domain"
-            --email "$email"
-            --agree-tos
-            --non-interactive
-            --keep-until-expiring
-        )
-    fi
+	if [ "$cdn_provider" == "Cloudflare" ]; then
+		echo -e "${YELLOW}Configuration Cloudflare...${NC}"
+		echo -e "Créez un token avec :"
+		echo -e "Permissions: Zone.DNS (Edit) + Zone.Zone (Read)"
+		echo -e "Zone Resources: Include - Specific Zone > votre-domaine.com"
+		
+		while true; do
+			read -p "API Token Cloudflare: " cf_api_key
+			export CF_Token="$cf_api_key"
+			
+			# Vérification complète
+			zone_info=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones?name=$domain" \
+				-H "Authorization: Bearer $CF_Token" \
+				-H "Content-Type: application/json")
+			
+			if echo "$zone_info" | grep -q '"success":true'; then
+				zone_id=$(echo "$zone_info" | jq -r '.result[0].id')
+				echo -e "${GREEN}✓ Token validé - Zone ID : $zone_id${NC}"
+				break
+			else
+				error=$(echo "$zone_info" | jq -r '.errors[0].message')
+				echo -e "${RED}⨉ Erreur : $error${NC}"
+			fi
+		done
+		
+		# Configuration Certbot
+		mkdir -p ~/.secrets/certbot/
+		echo "dns_cloudflare_api_token = $CF_Token" > ~/.secrets/certbot/cloudflare.ini
+		chmod 600 ~/.secrets/certbot/cloudflare.ini
+	fi
     
     # Exécution avec gestion des erreurs
     echo -e "${BLUE}ℹ Commande exécutée :${NC}\n${cert_cmd[*]}"
