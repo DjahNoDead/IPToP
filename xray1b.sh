@@ -187,24 +187,23 @@ setup_cdn() {
     done
     
     # Configuration spécifique à Cloudflare
-    if [ "$cdn_provider" == "Cloudflare" ]; then
-        echo -e "${YELLOW}⚙ Configuration Cloudflare...${NC}"
-        echo -e "${BLUE}ℹ Créez une API Token avec ces permissions :${NC}"
-        echo -e "  - Zone.DNS (Edit)"
-        echo -e "  - Zone.Zone (Read)"
-        echo -e "  - Zone: Include - All zones"
-        
-        # Demande de l'API Token avec validation
-        while true; do
-            echo -e "\n${BLUE}Obtenez votre token ici :${NC}"
-            echo -e "https://dash.cloudflare.com/profile/api-tokens"
-            read -p "API Token Cloudflare: " cf_api_key
-            
-            # Validation de base
-            if [ -z "$cf_api_key" ]; then
-                echo -e "${RED}⨉ L'API Token est requis!${NC}"
-                continue
-            fi
+		if [ "$cdn_provider" == "Cloudflare" ]; then
+			echo -e "${YELLOW}⚙ Configuration Cloudflare...${NC}"
+			echo -e "${BLUE}ℹ Créez un token avec ces permissions :${NC}"
+			echo -e "  - Zone.DNS (Edit)\n  - Zone.Zone (Read)\n  - Zone: Include - All zones"
+			
+			# → SUPPRIMER LA SECONDE DEMANDE DE TOKEN PLUS BAS
+			# → Utiliser directement le token déjà validé ($CF_Token)
+
+			# Configuration Certbot
+			mkdir -p ~/.secrets/certbot/
+			echo "dns_cloudflare_api_token = $CF_Token" > ~/.secrets/certbot/cloudflare.ini
+			chmod 600 ~/.secrets/certbot/cloudflare.ini
+
+			# Commande Certbot (sans redemander le token)
+			cert_cmd=(certbot certonly --dns-cloudflare --dns-cloudflare-credentials ~/.secrets/certbot/cloudflare.ini \
+				-d "$domain" --non-interactive --agree-tos --email "$email")
+		fi
             
             # Vérification de la longueur
             if [ ${#cf_api_key} -lt 30 ]; then
