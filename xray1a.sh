@@ -86,50 +86,114 @@ install_dependencies() {
     echo -e "${GREEN}Dépendances installées avec succès.${NC}"
 }
 
-# Installation V2Ray
+# Installation V2Ray/Xray
 install_v2ray() {
-    log "Installation de V2Ray"
-    echo -e "${YELLOW}Installation de V2Ray...${NC}"
+    log "Installation de V2Ray/Xray"
+    echo -e "${YELLOW}Installation de V2Ray/Xray...${NC}"
     
-    if ! bash <(curl -sL https://raw.githubusercontent.com/v2fly/fhs-install-v2ray/master/install-release.sh) >> "$LOG_FILE" 2>&1; then
-        echo -e "${RED}Échec de l'installation de V2Ray!${NC}"
+    # Installation Xray (plus complet que V2Ray)
+    if ! bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install >> "$LOG_FILE" 2>&1; then
+        echo -e "${RED}Échec de l'installation de Xray!${NC}"
         exit 1
     fi
     
-    echo -e "${GREEN}V2Ray installé avec succès.${NC}"
+    echo -e "${GREEN}Xray installé avec succès.${NC}"
 }
 
-# Configuration VMess
-generate_vmess_config() {
-    local port=$1
-    local uuid=$2
-    local transport=$3
-    local tls_mode=$4
+# Génération configurations
+generate_config() {
+    local protocol=$1
+    local port=$2
+    local id=$3
+    local transport=$4
+    local tls_mode=$5
     
-    cat > "$CONFIG_FILE" <<EOF
+    log "Génération configuration pour $protocol"
+    
+    case $protocol in
+        "vmess")
+            cat > "$CONFIG_FILE" <<EOF
 {
   "inbounds": [{
     "port": $port,
     "protocol": "vmess",
     "settings": {
-      "clients": [
-        {
-          "id": "$uuid",
-          "alterId": 64
-        }
-      ]
+      "clients": [{"id": "$id", "alterId": 0}]
     },
     "streamSettings": {
       "network": "$transport",
-      "security": "$tls_mode"
+      "security": "$tls_mode",
+      $( [ "$tls_mode" == "tls" ] && echo '"tlsSettings": {"serverName": ""}' || echo '' )
     }
   }],
-  "outbounds": [{
-    "protocol": "freedom",
-    "settings": {}
-  }]
+  "outbounds": [{"protocol": "freedom"}]
 }
 EOF
+            ;;
+            
+        "vless")
+            cat > "$CONFIG_FILE" <<EOF
+{
+  "inbounds": [{
+    "port": $port,
+    "protocol": "vless",
+    "settings": {
+      "clients": [{"id": "$id", "flow": "xtls-rprx-vision"}],
+      "decryption": "none"
+    },
+    "streamSettings": {
+      "network": "$transport",
+      "security": "$tls_mode",
+      $( [ "$tls_mode" == "reality" ] && echo '"realitySettings": {"show": false}' || echo '' )
+    }
+  }],
+  "outbounds": [{"protocol": "freedom"}]
+}
+EOF
+            ;;
+            
+        "trojan")
+            cat > "$CONFIG_FILE" <<EOF
+{
+  "inbounds": [{
+    "port": $port,
+    "protocol": "trojan",
+    "settings": {
+      "clients": [{"password": "$id"}]
+    },
+    "streamSettings": {
+      "network": "$transport",
+      "security": "$tls_mode",
+      $( [ "$tls_mode" == "tls" ] && echo '"tlsSettings": {"serverName": ""}' || echo '' )
+    }
+  }],
+  "outbounds": [{"protocol": "freedom"}]
+}
+EOF
+            ;;
+            
+        "shadowsocks")
+            cat > "$CONFIG_FILE" <<EOF
+{
+  "inbounds": [{
+    "port": $port,
+    "protocol": "shadowsocks",
+    "settings": {
+      "method": "aes-256-gcm",
+      "password": "$id",
+      "network": "$transport"
+    }
+  }],
+  "outbounds": [{"protocol": "freedom"}]
+}
+EOF
+            ;;
+            
+        *)
+            echo -e "${RED}Protocole $protocol non implémenté!${NC}"
+            exit 1
+            ;;
+    esac
 }
 
 # Installation complète
@@ -137,7 +201,7 @@ complete_installation() {
     check_root
     init_log
     
-    echo -e "${GREEN}=== Installation de V2Ray ===${NC}"
+    echo -e "${GREEN}=== Installation de Xray ===${NC}"
     
     # 1. Protocole
     protocol=$(select_protocol)
@@ -147,7 +211,7 @@ complete_installation() {
         read -p "Port à utiliser [défaut: 443]: " port
         port=${port:-443}
         if [[ "$port" =~ ^[0-9]+$ ]] && [ "$port" -ge 1 ] && [ "$port" -le 65535 ]; then
-            if ! netstat -tuln | grep -q ":$port "; then
+            if ! ss -tuln | grep -q ":$port "; then
                 break
             else
                 echo -e "${RED}Le port $port est déjà utilisé!${NC}"
@@ -158,15 +222,20 @@ complete_installation() {
     done
     
     # 3. Identifiants
-    if [ "$protocol" == "trojan" ]; then
-        password=$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 16)
-        echo -e "${GREEN}Mot de passe généré: ${YELLOW}$password${NC}"
-        id_value=$password
-    else
-        uuid=$(uuidgen | tr '[:upper:]' '[:lower:]')
-        echo -e "${GREEN}UUID généré: ${YELLOW}$uuid${NC}"
-        id_value=$uuid
-    fi
+    case $protocol in
+        "trojan")
+            id_value=$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 16)
+            echo -e "${GREEN}Mot de passe généré: ${YELLOW}$id_value${NC}"
+            ;;
+        "shadowsocks")
+            id_value=$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 16)
+            echo -e "${GREEN}Mot de passe généré: ${YELLOW}$id_value${NC}"
+            ;;
+        *)
+            id_value=$(uuidgen | tr '[:upper:]' '[:lower:]')
+            echo -e "${GREEN}UUID généré: ${YELLOW}$id_value${NC}"
+            ;;
+    esac
     
     # 4. Transport
     show_menu "Choix du transport" TRANSPORTS[@]
@@ -211,21 +280,23 @@ complete_installation() {
     install_v2ray
     
     # Configuration
-    case $protocol in
-        "vmess")
-            generate_vmess_config "$port" "$id_value" "$transport" "$tls_mode" ;;
-        *)
-            echo -e "${RED}Protocole $protocol non implémenté dans cette version${NC}"
-            exit 1 ;;
-    esac
+    generate_config "$protocol" "$port" "$id_value" "$transport" "$tls_mode"
     
     # Redémarrage
-    systemctl restart v2ray
-    systemctl enable v2ray
+    systemctl restart xray
+    systemctl enable xray
     
+    # Résumé final
     echo -e "${GREEN}=== Installation réussie ===${NC}"
     echo -e "Fichier de configuration: ${YELLOW}$CONFIG_FILE${NC}"
     echo -e "Journal d'installation: ${YELLOW}$LOG_FILE${NC}"
+    echo -e "\n${BLUE}=== Paramètres de connexion ===${NC}"
+    echo -e "Protocole: ${YELLOW}$protocol${NC}"
+    echo -e "Adresse: ${YELLOW}$(curl -s ifconfig.me)${NC}"
+    echo -e "Port: ${YELLOW}$port${NC}"
+    echo -e "Identifiant: ${YELLOW}$id_value${NC}"
+    echo -e "Transport: ${YELLOW}$transport${NC}"
+    echo -e "Sécurité: ${YELLOW}$tls_mode${NC}"
 }
 
 complete_installation
