@@ -327,47 +327,6 @@ select_protocol() {
     echo "$selected_protocol" | tr '[:upper:]' '[:lower:]'  # Conversion en minuscules pour la compatibilité
 }
 
-
-# Menu de sélection du transport
-select_transport() {
-    echo -e "${GREEN}Transports disponibles:${NC}"
-    for i in "${!TRANSPORTS[@]}"; do
-        echo "$((i+1)). ${TRANSPORTS[$i]}"
-    done
-    
-    while true; do
-        read -p "Choisissez un transport [1-${#TRANSPORTS[@]}]: " choice
-        if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "${#TRANSPORTS[@]}" ]; then
-            selected_transport=${TRANSPORTS[$((choice-1))]}
-            break
-        else
-            echo -e "${RED}Choix invalide!${NC}"
-        fi
-    done
-    
-    echo "$selected_transport" | tr '[:upper:]' '[:lower:]'
-}
-
-# Menu de sélection du mode TLS
-select_tls_mode() {
-    echo -e "${GREEN}Modes de sécurité disponibles:${NC}"
-    for i in "${!TLS_MODES[@]}"; do
-        echo "$((i+1)). ${TLS_MODES[$i]}"
-    done
-    
-    while true; do
-        read -p "Choisissez un mode de sécurité [1-${#TLS_MODES[@]}]: " choice
-        if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "${#TLS_MODES[@]}" ]; then
-            selected_tls_mode=${TLS_MODES[$((choice-1))]}
-            break
-        else
-            echo -e "${RED}Choix invalide!${NC}"
-        fi
-    done
-    
-    echo "$selected_tls_mode" | tr '[:upper:]' '[:lower:]'
-}
-
 # Fonction complete_installation corrigée
 complete_installation() {
     clear
@@ -431,6 +390,46 @@ complete_installation() {
     # Message final
     echo -e "${GREEN}=== Installation réussie ===${NC}"
     echo -e "Configuration sauvegardée dans : ${YELLOW}$CONFIG_FILE${NC}"
+}
+
+# Menu de sélection du transport
+select_transport() {
+    echo -e "${GREEN}Transports disponibles:${NC}"
+    for i in "${!TRANSPORTS[@]}"; do
+        echo "$((i+1)). ${TRANSPORTS[$i]}"
+    done
+    
+    while true; do
+        read -p "Choisissez un transport [1-${#TRANSPORTS[@]}]: " choice
+        if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "${#TRANSPORTS[@]}" ]; then
+            selected_transport=${TRANSPORTS[$((choice-1))]}
+            break
+        else
+            echo -e "${RED}Choix invalide!${NC}"
+        fi
+    done
+    
+    echo "$selected_transport" | tr '[:upper:]' '[:lower:]'
+}
+
+# Menu de sélection du mode TLS
+select_tls_mode() {
+    echo -e "${GREEN}Modes de sécurité disponibles:${NC}"
+    for i in "${!TLS_MODES[@]}"; do
+        echo "$((i+1)). ${TLS_MODES[$i]}"
+    done
+    
+    while true; do
+        read -p "Choisissez un mode de sécurité [1-${#TLS_MODES[@]}]: " choice
+        if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "${#TLS_MODES[@]}" ]; then
+            selected_tls_mode=${TLS_MODES[$((choice-1))]}
+            break
+        else
+            echo -e "${RED}Choix invalide!${NC}"
+        fi
+    done
+    
+    echo "$selected_tls_mode" | tr '[:upper:]' '[:lower:]'
 }
 
 # Menu principal
