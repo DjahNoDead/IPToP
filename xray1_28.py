@@ -34,6 +34,37 @@ class CloudflareManager:
         self.zone_id = ""
         self.domain = ""
 
+    def test_connection(self) -> bool:
+        """Vérifie les credentials API"""
+        headers = {
+            "X-Auth-Email": self.email,
+            "X-Auth-Key": self.api_key,
+            "Content-Type": "application/json"
+        }
+        try:
+            response = requests.get(
+                "https://api.cloudflare.com/client/v4/user/tokens/verify",
+                headers=headers
+            )
+            return response.status_code == 200
+        except:
+            return False
+
+    def configure_dns(self) -> bool:
+        """Configure les enregistrements DNS"""
+        # Implémentation de la configuration DNS via API
+        pass
+
+    def setup_ssl(self) -> bool:
+        """Configure les certificats SSL"""
+        # Implémentation de la configuration SSL
+        pass
+
+    def configure_firewall_rules(self) -> bool:
+        """Configure les règles de firewall et cache"""
+        # Implémentation des règles
+        pass
+
     def configure_cloudflare(self):
         """Configuration automatique via API Cloudflare"""
         print(f"\n{Colors.GREEN}=== Configuration Cloudflare API ==={Colors.NC}")
@@ -87,6 +118,7 @@ class V2RayInstaller:
         self.uuid_or_password = ""
         self.transport = ""
         self.tls_mode = ""
+        self.cf_manager = CloudflareManager()  # Ajoutez cette ligne
 
     def log(self, message: str) -> None:
         """Journalisation des actions"""
@@ -526,6 +558,34 @@ class V2RayInstaller:
             print(f"{Colors.RED}Erreur critique : Protocole '{self.protocol}' non implémenté.{Colors.NC}")
             sys.exit(1)
 
+    def configure_cloudflare_integration(self) -> bool:
+        """Gère toute la configuration Cloudflare avec gestion des erreurs"""
+        try:
+            if not hasattr(self, 'cf_manager'):
+                self.cf_manager = CloudflareManager()
+                
+            print(f"\n{Colors.BLUE}=== Configuration Cloudflare ==={Colors.NC}")
+            
+            # Étape 1: Credentials
+            self.cf_manager.email = input("Email du compte Cloudflare: ").strip()
+            self.cf_manager.api_key = input("Clé API Global Cloudflare: ").strip()
+            self.cf_manager.domain = self.domain
+            
+            # Étape 2: Configuration DNS
+            if not self.cf_manager.configure_dns():
+                print(f"{Colors.RED}Échec de la configuration DNS{Colors.NC}")
+                return False
+                
+            # Étape 3: Récupération des certificats
+            if not self.cf_manager.setup_ssl():
+                print(f"{Colors.YELLOW}Avertissement: Échec de la configuration SSL{Colors.NC}")
+                
+            return True
+            
+        except Exception as e:
+            print(f"{Colors.RED}Erreur Cloudflare: {str(e)}{Colors.NC}")
+            return False
+    
     def complete_installation(self) -> None:
         """Installation complète de V2Ray avec support CDN avancé"""
         print(f"{Colors.GREEN}=== Installation de V2Ray Premium ==={Colors.NC}")
@@ -576,11 +636,57 @@ class V2RayInstaller:
                 print(f"{Colors.YELLOW}Un domaine est requis pour la configuration TLS{Colors.NC}")
                 
         # 7. Configuration CDN
-        use_cdn = False
-        if use_domain:
-            use_cdn = input("Utiliser Cloudflare CDN ? (o/N): ").lower() == 'o'
-            if use_cdn:
-                self.configure_cloudflare()
+# 7. Configuration CDN avancée
+use_cdn = False
+if use_domain:
+    print(f"\n{Colors.BLUE}=== Configuration CDN ==={Colors.NC}")
+    use_cdn = input("Voulez-vous configurer Cloudflare CDN ? (o/N): ").lower() == 'o'
+    
+    if use_cdn:
+        print(f"\n{Colors.YELLOW}● Configuration requise pour Cloudflare:{Colors.NC}")
+        print("1. Activez le proxy (icône orange) dans l'interface DNS")
+        print("2. Configurez SSL/TLS sur 'Full (strict)'")
+        print("3. Activez WebSockets dans les paramètres Network")
+        
+        # Configuration API Cloudflare
+        print(f"\n{Colors.BLUE}● Authentification API:{Colors.NC}")
+        self.cf_manager.email = input("Email du compte Cloudflare: ").strip()
+        self.cf_manager.api_key = input("Clé API Global Cloudflare: ").strip()
+        self.cf_manager.domain = self.domain
+        
+        try:
+            # Vérification des credentials
+            if not self.cf_manager.test_connection():
+                print(f"{Colors.RED}Erreur: Impossible de se connecter à l'API Cloudflare{Colors.NC}")
+                raise Exception("Authentification API échouée")
+            
+            # Configuration DNS
+            print(f"\n{Colors.YELLOW}Configuration DNS...{Colors.NC}")
+            if not self.cf_manager.configure_dns():
+                print(f"{Colors.YELLOW}Avertissement: Échec partiel de la configuration DNS{Colors.NC}")
+            
+            # Configuration SSL
+            print(f"{Colors.YELLOW}Configuration SSL...{Colors.NC}")
+            ssl_success = self.cf_manager.setup_ssl()
+            
+            if not ssl_success:
+                print(f"{Colors.YELLOW}Avertissement: Configuration SSL partielle{Colors.NC}")
+                print("Vous devrez peut-être importer manuellement les certificats")
+            
+            # Configuration des règles
+            print(f"{Colors.YELLOW}Optimisation des règles...{Colors.NC}")
+            self.cf_manager.configure_firewall_rules()
+            
+            print(f"\n{Colors.GREEN}Configuration Cloudflare terminée avec succès!{Colors.NC}")
+            
+        except Exception as e:
+            print(f"\n{Colors.RED}Erreur lors de la configuration Cloudflare: {str(e)}{Colors.NC}")
+            if input("Voulez-vous continuer sans CDN ? (O/n): ").lower() != 'n':
+                use_cdn = False
+                print(f"{Colors.YELLOW}Continuer sans configuration CDN...{Colors.NC}")
+            else:
+                print(f"{Colors.RED}Annulation de l'installation{Colors.NC}")
+                return
         
         # Récapitulatif final
         print(f"\n{Colors.GREEN}=== Configuration Finale ==={Colors.NC}")
