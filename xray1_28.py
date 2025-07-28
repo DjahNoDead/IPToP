@@ -240,7 +240,18 @@ class V2RayInstaller:
         print("   - SSL/TLS: Full (strict)")
         print("   - WebSockets: Activé")
         print("   - Always Use HTTPS: Activé")
-    
+
+    def verify_dns(self, domain: str) -> bool:
+        """Vérification DNS simplifiée"""
+        try:
+            import socket
+            server_ip = subprocess.getoutput('curl -s ifconfig.me')
+            resolved_ip = socket.gethostbyname(domain)
+            return resolved_ip == server_ip
+        except Exception as e:
+            print(f"{Colors.YELLOW}Vérification DNS échouée: {e}{Colors.NC}")
+            return False
+        
     def install_dependencies(self) -> None:
         """Installation des dépendances"""
         self.log(f"Installation des dépendances pour {self.os_info.get('ID', 'unknown')}")
