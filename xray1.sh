@@ -49,15 +49,15 @@ configure_v2ray() {
     local uuid_or_password=$3
     local transport=$4
     local tls_mode=$5
-    
-    # Conversion en minuscules pour la compatibilité
+
+    # Conversion en minuscules pour la compatibilité (Bash 4+)
     protocol=${protocol,,}
     transport=${transport,,}
     tls_mode=${tls_mode,,}
 
-    log "Configuration de V2Ray avec $protocol sur $port via $transport ($tls_mode)"
-    
-    case $protocol in
+    log "Configuration de V2Ray avec $protocol sur le port $port via $transport (TLS: $tls_mode)"
+
+    case "$protocol" in
         "vmess")
             generate_vmess_config "$port" "$uuid_or_password" "$transport" "$tls_mode"
             ;;
@@ -71,7 +71,7 @@ configure_v2ray() {
             generate_shadowsocks_config "$port" "$uuid_or_password" "$transport" "$tls_mode"
             ;;
         *)
-            echo -e "${RED}Erreur critique: Protocole $protocol non implémenté${NC}"
+            echo -e "${RED}Erreur critique : Protocole '$protocol' non implémenté.${NC}"
             exit 1
             ;;
     esac
