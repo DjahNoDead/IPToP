@@ -539,6 +539,40 @@ class V2RayInstaller:
             "certificateFile": "/etc/v2ray/self_signed_cert.pem",
             "keyFile": "/etc/v2ray/self_signed_key.pem"
         }]
+
+    def get_public_ip(self) -> str:
+        """Récupère l'IP publique du serveur avec plusieurs méthodes de fallback"""
+        methods = [
+            # Méthodes de récupération d'IP avec timeout
+            ('curl -s ifconfig.me', 2),
+            ('curl -s icanhazip.com', 2),
+            ('curl -s ipinfo.io/ip', 2),
+            ('curl -s api.ipify.org', 2)
+        ]
+        
+        for cmd, timeout in methods:
+            try:
+                ip = subprocess.run(
+                    cmd.split(),
+                    capture_output=True,
+                    text=True,
+                    timeout=timeout
+                ).stdout.strip()
+                
+                if ip and self._is_valid_ip(ip):
+                    return ip
+            except:
+                continue
+        
+        return "VOTRE_IP_PUBLIQUE"  # Fallback manuel
+    
+    def _is_valid_ip(self, ip: str) -> bool:
+        """Valide qu'une chaîne est une IPv4 valide"""
+        try:
+            parts = ip.split('.')
+            return len(parts) == 4 and all(0 <= int(part) < 256 for part in parts)
+        except:
+            return False
         
     def configure_v2ray(self) -> None:
         """Configuration de V2Ray"""
@@ -690,7 +724,8 @@ class V2RayInstaller:
         # Récapitulatif final
         print(f"\n{Colors.GREEN}=== Configuration Finale ==={Colors.NC}")
         print(f"• Protocole: {Colors.YELLOW}{self.protocol.upper()}{Colors.NC}")
-        print(f"• Adresse: {Colors.YELLOW}{self.domain if use_domain else self.get_public_ip()}{Colors.NC}")
+        public_ip = self.get_public_ip() if hasattr(self, 'get_public_ip') else "VOTRE_IP_PUBLIQUE"
+        print(f"• Adresse: {Colors.YELLOW}{self.domain if use_domain else public_ip}{Colors.NC}")
         print(f"• Port: {Colors.YELLOW}{self.port}{Colors.NC}")
         print(f"• ID/Mot de passe: {Colors.YELLOW}{self.uuid_or_password}{Colors.NC}")
         print(f"• Transport: {Colors.YELLOW}{self.transport.upper()}{Colors.NC}")
