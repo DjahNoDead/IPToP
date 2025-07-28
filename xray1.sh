@@ -43,7 +43,7 @@ select_protocol() {
 }
 
 # Version corrigée de configure_v2ray
-configure_v2ray() {
+configure_v2ray() {(
     local protocol=$1
     local port=$2
     local uuid_or_password=$3
