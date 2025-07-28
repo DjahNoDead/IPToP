@@ -82,6 +82,13 @@ class V2RayInstaller:
         
         self.log(f"Système détecté: {self.os_info.get('ID', 'unknown')} {self.os_info.get('VERSION_ID', 'unknown')} {self.arch}")
 
+    def ensure_v2ray_dir(self):
+        """S'assurer que le répertoire /etc/v2ray existe"""
+        v2ray_dir = os.path.dirname(CONFIG_FILE)
+        if not os.path.exists(v2ray_dir):
+            os.makedirs(v2ray_dir, mode=0o755, exist_ok=True)
+            self.log(f"Création du répertoire {v2ray_dir}")
+    
     def show_menu(self, title: str, options: List[str]) -> None:
         """Afficher un menu"""
         print(f"{Colors.GREEN}=== {title} ==={Colors.NC}")
@@ -314,6 +321,8 @@ class V2RayInstaller:
     def configure_v2ray(self) -> None:
         """Configuration de V2Ray"""
         self.log(f"Configuration de V2Ray avec {self.protocol} sur le port {self.port} via {self.transport} (TLS: {self.tls_mode})")
+        
+        self.ensure_v2ray_dir()  # <-- Ajoutez cette ligne
         
         if self.protocol == "vmess":
             self.generate_vmess_config()
