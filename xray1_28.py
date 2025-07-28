@@ -389,6 +389,24 @@ class V2RayInstaller:
         
         print(f"{Colors.GREEN}=== Installation réussie ==={Colors.NC}")
         print(f"Fichier de configuration: {Colors.YELLOW}{CONFIG_FILE}{Colors.NC}")
+        print(f"\n{Colors.BLUE}=== Contenu du fichier de configuration ==={Colors.NC}")
+        
+        # Afficher le contenu du fichier de configuration
+        try:
+            with open(CONFIG_FILE, 'r') as f:
+                print(f.read())
+        except Exception as e:
+            print(f"{Colors.RED}Erreur lors de la lecture du fichier de configuration: {e}{Colors.NC}")
+        
+        print(f"\n{Colors.BLUE}=== Informations pour l'importation ==={Colors.NC}")
+        print(f"Protocole: {self.protocol.upper()}")
+        print(f"Adresse: {socket.gethostname()}")
+        print(f"Port: {self.port}")
+        print(f"ID/Mot de passe: {self.uuid_or_password}")
+        print(f"Transport: {self.transport}")
+        print(f"Sécurité: {self.tls_mode}")
+        
+        input("\nAppuyez sur Entrée pour continuer...")        
 
     def update_v2ray(self) -> None:
         """Mise à jour de V2Ray"""
