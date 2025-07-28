@@ -170,6 +170,24 @@ class V2RayInstaller:
         
         return True
 
+    def configure_domain(self):
+        """Configuration pour domaine et CDN"""
+        print(f"\n{Colors.GREEN}=== Configuration Domaine/CDN ==={Colors.NC}")
+        print("1. Pour utiliser avec Cloudflare ou autre CDN:")
+        print("   - Activez le proxy (orange cloud)")
+        print("   - Configurez le DNS avec:")
+        print(f"     Type: A ou CNAME")
+        print(f"     Nom: votre.sous-domaine")
+        print(f"     Valeur: {subprocess.getoutput('curl -s ifconfig.me')}")
+        print("2. Paramètres recommandés:")
+        print("   - TLS: activé")
+        print("   - Port: 443 (ou 8443, 2096 pour CDN)")
+        print("   - WebSocket path: /v2ray (si WS)")
+        print("3. Dans Cloudflare:")
+        print("   - SSL/TLS: Full (strict)")
+        print("   - WebSockets: Activé")
+        print("   - Always Use HTTPS: Activé")
+    
     def install_dependencies(self) -> None:
         """Installation des dépendances"""
         self.log(f"Installation des dépendances pour {self.os_info.get('ID', 'unknown')}")
@@ -209,7 +227,7 @@ class V2RayInstaller:
             sys.exit(1)
 
     def generate_vmess_config(self) -> None:
-        """Génération de configuration VMess"""
+        """Génération de configuration VMess optimisée"""
         config = {
             "inbounds": [{
                 "port": self.port,
@@ -217,12 +235,28 @@ class V2RayInstaller:
                 "settings": {
                     "clients": [{
                         "id": self.uuid_or_password,
-                        "alterId": 64
-                    }]
+                        "alterId": 0,  # Modern clients use 0
+                        "email": f"user@{socket.gethostname()}"
+                    }],
+                    "disableInsecureEncryption": True  # Sécurité renforcée
                 },
                 "streamSettings": {
                     "network": self.transport,
-                    "security": self.tls_mode
+                    "security": self.tls_mode,
+                    "wsSettings": {
+                        "path": "/vmess",
+                        "headers": {
+                            "Host": ""  # Remplacer par votre domaine
+                        }
+                    },
+                    "tlsSettings": {
+                        "serverName": "",  # Remplacer par votre domaine
+                        "alpn": ["http/1.1"]
+                    }
+                },
+                "sniffing": {
+                    "enabled": True,
+                    "destOverride": ["http", "tls"]
                 }
             }],
             "outbounds": [{
@@ -233,11 +267,9 @@ class V2RayInstaller:
         
         with open(CONFIG_FILE, 'w') as f:
             json.dump(config, f, indent=2)
-        
-        self.log("Configuration VMess générée")
-
+            
     def generate_vless_config(self) -> None:
-        """Génération de configuration VLESS"""
+        """Génération de configuration VLESS avec support CDN"""
         config = {
             "inbounds": [{
                 "port": self.port,
@@ -245,13 +277,29 @@ class V2RayInstaller:
                 "settings": {
                     "clients": [{
                         "id": self.uuid_or_password,
-                        "flow": "xtls-rprx-direct"
+                        "flow": "xtls-rprx-direct" if self.tls_mode == "tls" else ""
                     }],
-                    "decryption": "none"
+                    "decryption": "none",
+                    "fallbacks": [
+                        {
+                            "dest": 80,  # Port de fallback pour le déguisement
+                            "xver": 1
+                        }
+                    ]
                 },
                 "streamSettings": {
                     "network": self.transport,
-                    "security": self.tls_mode
+                    "security": self.tls_mode,
+                    "wsSettings": {
+                        "path": "/v2ray",
+                        "headers": {
+                            "Host": ""  # À remplacer par votre domaine
+                        }
+                    }
+                },
+                "sniffing": {
+                    "enabled": True,
+                    "destOverride": ["http", "tls"]
                 }
             }],
             "outbounds": [{
@@ -262,23 +310,43 @@ class V2RayInstaller:
         
         with open(CONFIG_FILE, 'w') as f:
             json.dump(config, f, indent=2)
-        
-        self.log("Configuration VLESS générée")
-
+            
     def generate_trojan_config(self) -> None:
-        """Génération de configuration Trojan"""
+        """Génération de configuration Trojan avec fallback"""
         config = {
             "inbounds": [{
                 "port": self.port,
                 "protocol": "trojan",
                 "settings": {
                     "clients": [{
-                        "password": self.uuid_or_password
-                    }]
+                        "password": self.uuid_or_password,
+                        "email": f"user@{socket.gethostname()}"
+                    }],
+                    "fallbacks": [
+                        {
+                            "dest": 80,  # Port de déguisement
+                            "xver": 1
+                        }
+                    ]
                 },
                 "streamSettings": {
                     "network": self.transport,
-                    "security": self.tls_mode
+                    "security": self.tls_mode,
+                    "tlsSettings": {
+                        "serverName": "",  # Remplacer par votre domaine
+                        "alpn": ["h2", "http/1.1"],
+                        "certificates": []
+                    },
+                    "wsSettings": {
+                        "path": "/trojan",
+                        "headers": {
+                            "Host": ""  # Remplacer par votre domaine
+                        }
+                    }
+                },
+                "sniffing": {
+                    "enabled": True,
+                    "destOverride": ["http", "tls"]
                 }
             }],
             "outbounds": [{
@@ -289,22 +357,30 @@ class V2RayInstaller:
         
         with open(CONFIG_FILE, 'w') as f:
             json.dump(config, f, indent=2)
-        
-        self.log("Configuration Trojan générée")
-
+    
     def generate_shadowsocks_config(self) -> None:
-        """Génération de configuration Shadowsocks"""
+        """Génération de configuration Shadowsocks moderne"""
         config = {
             "inbounds": [{
                 "port": self.port,
                 "protocol": "shadowsocks",
                 "settings": {
-                    "method": "aes-256-gcm",
+                    "method": "chacha20-ietf-poly1305",  # Méthode recommandée
                     "password": self.uuid_or_password,
-                    "network": self.transport
+                    "network": self.transport,
+                    "level": 0,
+                    "email": f"user@{socket.gethostname()}"
                 },
                 "streamSettings": {
-                    "security": self.tls_mode
+                    "security": self.tls_mode,
+                    "tlsSettings": {
+                        "serverName": "",  # Remplacer par votre domaine
+                        "alpn": ["http/1.1"]
+                    }
+                },
+                "sniffing": {
+                    "enabled": True,
+                    "destOverride": ["http", "tls"]
                 }
             }],
             "outbounds": [{
@@ -315,9 +391,7 @@ class V2RayInstaller:
         
         with open(CONFIG_FILE, 'w') as f:
             json.dump(config, f, indent=2)
-        
-        self.log("Configuration Shadowsocks générée")
-
+    
     def configure_v2ray(self) -> None:
         """Configuration de V2Ray"""
         self.log(f"Configuration de V2Ray avec {self.protocol} sur le port {self.port} via {self.transport} (TLS: {self.tls_mode})")
@@ -387,27 +461,58 @@ class V2RayInstaller:
         self.install_v2ray()
         self.configure_v2ray()
         
-        print(f"{Colors.GREEN}=== Installation réussie ==={Colors.NC}")
+        # Affichage des résultats
+        print(f"\n{Colors.GREEN}=== Installation réussie ==={Colors.NC}")
         print(f"Fichier de configuration: {Colors.YELLOW}{CONFIG_FILE}{Colors.NC}")
-        print(f"\n{Colors.BLUE}=== Contenu du fichier de configuration ==={Colors.NC}")
         
-        # Afficher le contenu du fichier de configuration
+        # Obtenir l'adresse IP publique ou le domaine
         try:
-            with open(CONFIG_FILE, 'r') as f:
-                print(f.read())
-        except Exception as e:
-            print(f"{Colors.RED}Erreur lors de la lecture du fichier de configuration: {e}{Colors.NC}")
+            public_ip = subprocess.getoutput('curl -s ifconfig.me')
+        except:
+            public_ip = "VOTRE_DOMAINE_OU_IP"
         
-        print(f"\n{Colors.BLUE}=== Informations pour l'importation ==={Colors.NC}")
+        # Afficher la configuration formatée pour les clients
+        print(f"\n{Colors.BLUE}=== Configuration pour client V2Ray ==={Colors.NC}")
+        print(f"{Colors.YELLOW}Remplacez 'VOTRE_DOMAINE_OU_IP' par votre domaine ou IP réelle{Colors.NC}\n")
+        
+        if self.protocol == "vless":
+            print(f"vless://{self.uuid_or_password}@{public_ip}:{self.port}?type={self.transport}&security={self.tls_mode}&flow=xtls-rprx-direct#{self.protocol}-{self.transport}")
+        elif self.protocol == "vmess":
+            vmess_config = {
+                "v": "2",
+                "ps": f"V2Ray-{self.protocol}-{self.transport}",
+                "add": public_ip,
+                "port": str(self.port),
+                "id": self.uuid_or_password,
+                "aid": "64",
+                "net": self.transport,
+                "type": "none",
+                "tls": self.tls_mode if self.tls_mode != "none" else ""
+            }
+            print(f"vmess://{base64.b64encode(json.dumps(vmess_config).encode()).decode()}")
+        elif self.protocol == "trojan":
+            print(f"trojan://{self.uuid_or_password}@{public_ip}:{self.port}?security={self.tls_mode}&type={self.transport}#Trojan-{self.transport}")
+        
+        print(f"\n{Colors.BLUE}=== Paramètres détaillés ==={Colors.NC}")
         print(f"Protocole: {self.protocol.upper()}")
-        print(f"Adresse: {socket.gethostname()}")
+        print(f"Adresse: {public_ip} (remplacez par votre domaine si configuré)")
         print(f"Port: {self.port}")
         print(f"ID/Mot de passe: {self.uuid_or_password}")
         print(f"Transport: {self.transport}")
         print(f"Sécurité: {self.tls_mode}")
+        if self.protocol == "vless":
+            print("Flow: xtls-rprx-direct (pour VLESS+XTLS)")
         
-        input("\nAppuyez sur Entrée pour continuer...")        
-
+        # Ajouter des notes pour Cloudflare
+        print(f"\n{Colors.BLUE}=== Configuration Cloudflare/CDN ==={Colors.NC}")
+        print("1. Configurez votre domaine dans Cloudflare avec proxy activé (icône orange)")
+        print("2. Utilisez ces paramètres:")
+        print(f"   - Type: {self.transport.upper()}")
+        print(f"   - Port: 443 (ou votre port TLS)")
+        print("3. Désactivez les options de chiffrement dans Cloudflare si vous utilisez TLS")
+        
+        input("\nAppuyez sur Entrée pour continuer...")
+    
     def update_v2ray(self) -> None:
         """Mise à jour de V2Ray"""
         self.log("Début de la mise à jour de V2Ray")
@@ -448,6 +553,64 @@ class V2RayInstaller:
         print(f"{Colors.GREEN}=== Statut du service V2Ray ==={Colors.NC}")
         subprocess.run(['systemctl', 'status', 'v2ray', '--no-pager'])
 
+    def show_client_config(self):
+        """Affiche la configuration client optimisée"""
+        public_ip = self.get_public_ip()
+        
+        print(f"\n{Colors.BLUE}=== Configuration Client ({self.protocol.upper()}) ==={Colors.NC}")
+        
+        if self.protocol == "vless":
+            print(f"vless://{self.uuid_or_password}@{public_ip}:{self.port}?type={self.transport}&security={self.tls_mode}&flow=xtls-rprx-direct#{self.protocol}-{self.transport}")
+        elif self.protocol == "vmess":
+            vmess_config = {
+                "v": "2",
+                "ps": f"V2Ray-{socket.gethostname()}",
+                "add": public_ip,
+                "port": str(self.port),
+                "id": self.uuid_or_password,
+                "aid": "0",
+                "net": self.transport,
+                "type": "none",
+                "host": "",
+                "path": "/vmess",
+                "tls": "tls" if self.tls_mode == "tls" else ""
+            }
+            print(f"vmess://{base64.b64encode(json.dumps(vmess_config).encode()).decode()}")
+        elif self.protocol == "trojan":
+            print(f"trojan://{self.uuid_or_password}@{public_ip}:{self.port}?security={self.tls_mode}&type={self.transport}&path=/trojan#{self.protocol}-{self.transport}")
+        elif self.protocol == "shadowsocks":
+            print(f"ss://{base64.b64encode(f'chacha20-ietf-poly1305:{self.uuid_or_password}'.encode()).decode()}@{public_ip}:{self.port}#{self.protocol}-{self.transport}")
+        
+        print(f"\n{Colors.YELLOW}Paramètres avancés:{Colors.NC}")
+        print(f"Protocole: {self.protocol.upper()}")
+        print(f"Adresse: {public_ip} (ou votre domaine)")
+        print(f"Port: {self.port}")
+        print(f"ID/Mot de passe: {self.uuid_or_password}")
+        print(f"Transport: {self.transport}")
+        print(f"Sécurité: {self.tls_mode}")
+        
+        if self.protocol in ["vless", "trojan"]:
+            print("Path: /" + self.protocol)
+        
+        self.show_cdn_instructions()
+    
+    def show_cdn_instructions(self):
+        """Affiche les instructions CDN communes"""
+        print(f"\n{Colors.GREEN}=== Configuration CDN (Cloudflare) ==={Colors.NC}")
+        print("1. Dans les paramètres DNS:")
+        print("   - Type: A ou CNAME")
+        print("   - Nom: votre.sous-domaine")
+        print("   - Valeur: Votre IP ou domaine racine")
+        print("   - Proxy: Activé (icône orange)")
+        print("2. Paramètres recommandés:")
+        print(f"   - Port: {self.port} (TCP)")
+        print(f"   - Type de proxy: {self.transport.upper()}")
+        print("3. Dans SSL/TLS:")
+        print("   - Mode: Full (strict)")
+        print("   - TLS 1.3: Activé")
+        print("4. Dans Network:")
+        print("   - WebSockets: Activé")
+    
     def main_menu(self) -> None:
         """Menu principal"""
         while True:
