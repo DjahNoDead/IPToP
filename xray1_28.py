@@ -251,6 +251,40 @@ class V2RayInstaller:
         except Exception as e:
             print(f"{Colors.YELLOW}Vérification DNS échouée: {e}{Colors.NC}")
             return False
+
+    def configure_tls(self, domain: str) -> None:
+        """Configure les certificats TLS pour un domaine"""
+        print(f"\n{Colors.YELLOW}Configuration TLS pour le domaine {domain}...{Colors.NC}")
+        
+        # Chemin des certificats
+        cert_dir = "/etc/v2ray/certs"
+        cert_file = f"{cert_dir}/{domain}.pem"
+        key_file = f"{cert_dir}/{domain}.key"
+        
+        try:
+            # Créer le répertoire si inexistant
+            os.makedirs(cert_dir, exist_ok=True)
+            
+            # Option 1: Certificats existants
+            if os.path.exists(cert_file) and os.path.exists(key_file):
+                print(f"{Colors.GREEN}Certificats existants trouvés.{Colors.NC}")
+                return
+            
+            # Option 2: Certificats auto-signés (temporaires)
+            print(f"{Colors.YELLOW}Génération de certificats auto-signés...{Colors.NC}")
+            subprocess.run([
+                "openssl", "req", "-new", "-x509", "-nodes",
+                "-days", "365", "-newkey", "rsa:2048",
+                "-keyout", key_file,
+                "-out", cert_file,
+                "-subj", f"/CN={domain}"
+            ], check=True)
+            
+            print(f"{Colors.GREEN}Certificats générés dans {cert_dir}{Colors.NC}")
+            
+        except Exception as e:
+            print(f"{Colors.RED}Erreur lors de la configuration TLS: {e}{Colors.NC}")
+            sys.exit(1)
         
     def install_dependencies(self) -> None:
         """Installation des dépendances"""
@@ -531,9 +565,16 @@ class V2RayInstaller:
         
         # 6. Configuration TLS avancée
         self.tls_mode = self.select_tls_mode()
-        if self.tls_mode == "tls" and use_domain:
-            self.configure_tls(self.domain)
-        
+        # Par cette version plus robuste :
+        if self.tls_mode == "tls":
+            if use_domain and hasattr(self, 'domain') and self.domain:
+                if not hasattr(self, 'configure_tls'):
+                    print(f"{Colors.YELLOW}La configuration TLS automatique n'est pas disponible{Colors.NC}")
+                else:
+                    self.configure_tls(self.domain)
+            else:
+                print(f"{Colors.YELLOW}Un domaine est requis pour la configuration TLS{Colors.NC}")
+                
         # 7. Configuration CDN
         use_cdn = False
         if use_domain:
