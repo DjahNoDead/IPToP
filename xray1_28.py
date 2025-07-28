@@ -635,58 +635,57 @@ class V2RayInstaller:
             else:
                 print(f"{Colors.YELLOW}Un domaine est requis pour la configuration TLS{Colors.NC}")
                 
-        # 7. Configuration CDN
-# 7. Configuration CDN avancée
-use_cdn = False
-if use_domain:
-    print(f"\n{Colors.BLUE}=== Configuration CDN ==={Colors.NC}")
-    use_cdn = input("Voulez-vous configurer Cloudflare CDN ? (o/N): ").lower() == 'o'
-    
-    if use_cdn:
-        print(f"\n{Colors.YELLOW}● Configuration requise pour Cloudflare:{Colors.NC}")
-        print("1. Activez le proxy (icône orange) dans l'interface DNS")
-        print("2. Configurez SSL/TLS sur 'Full (strict)'")
-        print("3. Activez WebSockets dans les paramètres Network")
-        
-        # Configuration API Cloudflare
-        print(f"\n{Colors.BLUE}● Authentification API:{Colors.NC}")
-        self.cf_manager.email = input("Email du compte Cloudflare: ").strip()
-        self.cf_manager.api_key = input("Clé API Global Cloudflare: ").strip()
-        self.cf_manager.domain = self.domain
-        
-        try:
-            # Vérification des credentials
-            if not self.cf_manager.test_connection():
-                print(f"{Colors.RED}Erreur: Impossible de se connecter à l'API Cloudflare{Colors.NC}")
-                raise Exception("Authentification API échouée")
+        # 7. Configuration CDN avancée
+        use_cdn = False
+        if use_domain:
+            print(f"\n{Colors.BLUE}=== Configuration CDN ==={Colors.NC}")
+            use_cdn = input("Voulez-vous configurer Cloudflare CDN ? (o/N): ").lower() == 'o'
             
-            # Configuration DNS
-            print(f"\n{Colors.YELLOW}Configuration DNS...{Colors.NC}")
-            if not self.cf_manager.configure_dns():
-                print(f"{Colors.YELLOW}Avertissement: Échec partiel de la configuration DNS{Colors.NC}")
-            
-            # Configuration SSL
-            print(f"{Colors.YELLOW}Configuration SSL...{Colors.NC}")
-            ssl_success = self.cf_manager.setup_ssl()
-            
-            if not ssl_success:
-                print(f"{Colors.YELLOW}Avertissement: Configuration SSL partielle{Colors.NC}")
-                print("Vous devrez peut-être importer manuellement les certificats")
-            
-            # Configuration des règles
-            print(f"{Colors.YELLOW}Optimisation des règles...{Colors.NC}")
-            self.cf_manager.configure_firewall_rules()
-            
-            print(f"\n{Colors.GREEN}Configuration Cloudflare terminée avec succès!{Colors.NC}")
-            
-        except Exception as e:
-            print(f"\n{Colors.RED}Erreur lors de la configuration Cloudflare: {str(e)}{Colors.NC}")
-            if input("Voulez-vous continuer sans CDN ? (O/n): ").lower() != 'n':
-                use_cdn = False
-                print(f"{Colors.YELLOW}Continuer sans configuration CDN...{Colors.NC}")
-            else:
-                print(f"{Colors.RED}Annulation de l'installation{Colors.NC}")
-                return
+            if use_cdn:
+                print(f"\n{Colors.YELLOW}● Configuration requise pour Cloudflare:{Colors.NC}")
+                print("1. Activez le proxy (icône orange) dans l'interface DNS")
+                print("2. Configurez SSL/TLS sur 'Full (strict)'")
+                print("3. Activez WebSockets dans les paramètres Network")
+                
+                # Configuration API Cloudflare
+                print(f"\n{Colors.BLUE}● Authentification API:{Colors.NC}")
+                self.cf_manager.email = input("Email du compte Cloudflare: ").strip()
+                self.cf_manager.api_key = input("Clé API Global Cloudflare: ").strip()
+                self.cf_manager.domain = self.domain
+                
+                try:
+                    # Vérification des credentials
+                    if not self.cf_manager.test_connection():
+                        print(f"{Colors.RED}Erreur: Impossible de se connecter à l'API Cloudflare{Colors.NC}")
+                        raise Exception("Authentification API échouée")
+                    
+                    # Configuration DNS
+                    print(f"\n{Colors.YELLOW}Configuration DNS...{Colors.NC}")
+                    if not self.cf_manager.configure_dns():
+                        print(f"{Colors.YELLOW}Avertissement: Échec partiel de la configuration DNS{Colors.NC}")
+                    
+                    # Configuration SSL
+                    print(f"{Colors.YELLOW}Configuration SSL...{Colors.NC}")
+                    ssl_success = self.cf_manager.setup_ssl()
+                    
+                    if not ssl_success:
+                        print(f"{Colors.YELLOW}Avertissement: Configuration SSL partielle{Colors.NC}")
+                        print("Vous devrez peut-être importer manuellement les certificats")
+                    
+                    # Configuration des règles
+                    print(f"{Colors.YELLOW}Optimisation des règles...{Colors.NC}")
+                    self.cf_manager.configure_firewall_rules()
+                    
+                    print(f"\n{Colors.GREEN}Configuration Cloudflare terminée avec succès!{Colors.NC}")
+                    
+                except Exception as e:
+                    print(f"\n{Colors.RED}Erreur lors de la configuration Cloudflare: {str(e)}{Colors.NC}")
+                    if input("Voulez-vous continuer sans CDN ? (O/n): ").lower() != 'n':
+                        use_cdn = False
+                        print(f"{Colors.YELLOW}Continuer sans configuration CDN...{Colors.NC}")
+                    else:
+                        print(f"{Colors.RED}Annulation de l'installation{Colors.NC}")
+                        return
         
         # Récapitulatif final
         print(f"\n{Colors.GREEN}=== Configuration Finale ==={Colors.NC}")
