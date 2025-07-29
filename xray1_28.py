@@ -1387,35 +1387,6 @@ class V2RayInstaller:
         print("   - TLS 1.3: Activé")
         print("4. Dans Network:")
         print("   - WebSockets: Activé")
-    
-    def main_menu(self):
-        menu_options = {
-            '1': ('Installation complète', self.full_installation),
-            '2': ('Mise à jour de V2Ray', self.update_v2ray),
-            '3': ('Désinstaller V2Ray', self.uninstall),
-            '4': ('Gérer les configurations', self.manage_configs),
-            '5': ('Voir le statut du service', self.check_status),
-            '6': ('Quitter', exit)
-        }
-    
-        while True:
-            print("\n" + "="*50)
-            print("Menu Principal".center(50))
-            print("="*50)
-            
-            for key, (text, _) in menu_options.items():
-                print(f"{key}. {text}")
-            
-            choice = input("Choisissez une option [1-6]: ").strip()
-            
-            if choice in menu_options:
-                try:
-                    menu_options[choice][1]()
-                except Exception as e:
-                    print(f"Erreur: {str(e)}")
-                    input("Appuyez sur Entrée pour continuer...")
-            else:
-                print("Option invalide, veuillez réessayer.")
 
     def update_v2ray(self):
         """Mise à jour de V2Ray/Xray"""
@@ -1500,8 +1471,38 @@ class V2RayInstaller:
     def check_status(self):
         """Vérifie le statut du service"""
         os.system("systemctl status xray")
-        input("\nAppuyez sur Entrée pour continuer...")
+        input("\nAppuyez sur Entrée pour continuer...")            
+    
+    def main_menu(self):
+        menu_options = {
+            '1': ('Installation complète', self.full_installation),
+            '2': ('Mise à jour de V2Ray', self.update_v2ray),
+            '3': ('Désinstaller V2Ray', self.uninstall),
+            '4': ('Gérer les configurations', self.manage_configs),
+            '5': ('Voir le statut du service', self.check_status),
+            '6': ('Quitter', exit)
+        }
+    
+        while True:
+            print("\n" + "="*50)
+            print("Menu Principal".center(50))
+            print("="*50)
             
+            for key, (text, _) in menu_options.items():
+                print(f"{key}. {text}")
+            
+            choice = input("Choisissez une option [1-6]: ").strip()
+            
+            if choice in menu_options:
+                try:
+                    menu_options[choice][1]()
+                except Exception as e:
+                    print(f"Erreur: {str(e)}")
+                    input("Appuyez sur Entrée pour continuer...")
+            else:
+                print("Option invalide, veuillez réessayer.")
+
+
     def main_menu(self):
         menu_options = {
             '1': ('Installation complète', self._finalize_installation),
