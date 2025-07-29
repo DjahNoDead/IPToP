@@ -353,6 +353,19 @@ class V2RayInstaller:
         except subprocess.CalledProcessError as e:
             print(f"{Colors.RED}Échec de l'installation des dépendances: {e}{Colors.NC}")
             sys.exit(1)
+    def generate_random_path(self) -> str:
+        """Génère un chemin aléatoire pour WS/HTTP"""
+        segments = [
+            "api", "data", "graphql", "rest", 
+            "v2ray", "app", "ws", "stream"
+        ]
+        return f"/{random.choice(segments)}-{random.randint(1000,9999)}/path"
+    
+    def generate_random_service_name(self) -> str:
+        """Génère un nom de service gRPC aléatoire"""
+        prefixes = ["api", "data", "sync", "cloud", "grpc"]
+        suffixes = ["service", "channel", "gateway", "stream"]
+        return f"{random.choice(prefixes)}-{random.choice(suffixes)}-{random.randint(100,999)}"
 
     def install_v2ray(self) -> None:
         """Installation de V2Ray"""
@@ -580,20 +593,6 @@ class V2RayInstaller:
             "email": f"user@{socket.gethostname()}"
         }
 
-    def generate_random_path(self) -> str:
-        """Génère un chemin aléatoire pour WS/HTTP"""
-        segments = [
-            "api", "data", "graphql", "rest", 
-            "v2ray", "app", "ws", "stream"
-        ]
-        return f"/{random.choice(segments)}-{random.randint(1000,9999)}/path"
-    
-    def generate_random_service_name(self) -> str:
-        """Génère un nom de service gRPC aléatoire"""
-        prefixes = ["api", "data", "sync", "cloud", "grpc"]
-        suffixes = ["service", "channel", "gateway", "stream"]
-        return f"{random.choice(prefixes)}-{random.choice(suffixes)}-{random.randint(100,999)}"
-        
     def _get_stream_settings(self, use_cdn: bool) -> dict:
         """Configuration avancée du transport corrigée"""
         stream_settings = {
