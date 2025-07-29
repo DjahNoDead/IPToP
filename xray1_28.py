@@ -1416,31 +1416,47 @@ class V2RayInstaller:
                     input("Appuyez sur Entrée pour continuer...")
             else:
                 print("Option invalide, veuillez réessayer.")
-    
-    def manage_configurations(self) -> None:
-        """Gestion des configurations"""
-        print(f"{Colors.GREEN}=== Gestion des configurations ==={Colors.NC}")
-        print("1. Afficher la configuration actuelle")
-        print("2. Sauvegarder la configuration")
-        print("3. Restaurer une configuration")
-        print("4. Modifier la configuration manuellement")
-        print("5. Retour")
-        
-        choice = input("Choisissez une option [1-5]: ")
-        
-        if choice == '1':
-            self.show_config()
-        elif choice == '2':
-            self.backup_config()
-        elif choice == '3':
-            self.restore_config()
-        elif choice == '4':
-            self.edit_config()
-        elif choice == '5':
-            return
-        else:
-            print(f"{Colors.RED}Option invalide!{Colors.NC}")
 
+    def update_v2ray(self):
+        """Mise à jour de V2Ray/Xray"""
+        print("\nDébut de la mise à jour...")
+        try:
+            # Commande de mise à jour pour Xray (adaptez selon votre besoin)
+            os.system("bash -c \"$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)\" @ install")
+            print("Mise à jour terminée avec succès!")
+        except Exception as e:
+            print(f"Échec de la mise à jour: {str(e)}")
+        input("Appuyez sur Entrée pour continuer...")
+    
+    def main_menu(self):
+        while True:
+            print("\n" + "="*50)
+            print("Menu Principal".center(50))
+            print("="*50)
+            print("1. Installation complète")
+            print("2. Mise à jour de V2Ray")
+            print("3. Désinstaller V2Ray")
+            print("4. Gérer les configurations")
+            print("5. Voir le statut du service")
+            print("6. Quitter")
+            
+            choice = input("Choisissez une option [1-6]: ").strip()
+            
+            if choice == '1':
+                self.full_installation()
+            elif choice == '2':
+                self.update_v2ray()  # Cette méthode doit exister
+            elif choice == '3':
+                self.uninstall()
+            elif choice == '4':
+                self.manage_configs()
+            elif choice == '5':
+                self.check_status()
+            elif choice == '6':
+                exit(0)
+            else:
+                print("Option invalide, veuillez réessayer.")
+          
     def show_config(self) -> None:
         """Afficher la configuration actuelle"""
         try:
