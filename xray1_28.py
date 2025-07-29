@@ -775,7 +775,10 @@ class V2RayInstaller:
                 print(f"{Colors.YELLOW}Avertissement: Méthode show_client_config non trouvée{Colors.NC}")
             
             return True
-        
+        except Exception as e:  # Ajout du bloc except manquant
+            print(f"{Colors.RED}Erreur lors de l'installation: {e}{Colors.NC}")
+            return False
+      
     def show_installation_summary(self, use_domain: bool, use_cdn: bool):
         """Affiche un récapitulatif complet de l'installation"""
         address = self.domain if use_domain else self.get_public_ip()
