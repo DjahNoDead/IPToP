@@ -768,6 +768,16 @@ class V2RayInstaller:
         # 7. Finalisation
         self._finalize_installation(use_domain)
 
+    def generate_qr_code(self, config):
+        """Génère un QR Code de la configuration"""
+        try:
+            import qrcode
+            qr = qrcode.QRCode()
+            qr.add_data(json.dumps(config))
+            qr.print_ascii()
+        except ImportError:
+            print(f"{Colors.YELLOW}Installez 'qrcode' pour les QR Codes: pip install qrcode{Colors.NC}")
+    
     def _finalize_installation(self, use_domain: bool):
         """Gère les étapes finales de l'installation"""
         print(f"\n{Colors.GREEN}=== Configuration Finale ==={Colors.NC}")
