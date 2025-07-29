@@ -9,6 +9,7 @@ import random
 import string
 import subprocess
 import socket
+import inspect  # Ajoutez cette ligne
 from datetime import datetime
 from typing import List, Dict, Any
 
@@ -766,8 +767,7 @@ class V2RayInstaller:
             
             # Corriger l'appel à show_client_config
             if hasattr(self, 'show_client_config'):
-                if len(inspect.signature(self.show_client_config).parameters) == 1:
-                    self.show_client_config()
+                self.show_client_config(use_domain)
                 else:
                     # Pour la compatibilité avec les anciennes versions
                     self.show_client_config(use_domain)
