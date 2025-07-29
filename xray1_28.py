@@ -274,16 +274,28 @@ class V2RayInstaller:
         print("   - Always Use HTTPS: Activé")
 
     def verify_dns(self, domain: str) -> bool:
-        """Vérification DNS simplifiée"""
+        """Vérification basique DNS"""
         try:
             import socket
             server_ip = subprocess.getoutput('curl -s ifconfig.me')
             resolved_ip = socket.gethostbyname(domain)
             return resolved_ip == server_ip
-        except Exception as e:
-            print(f"{Colors.YELLOW}Vérification DNS échouée: {e}{Colors.NC}")
+        except:
             return False
-
+    
+    def generate_self_signed_cert(self):
+        """Génère un certificat auto-signé"""
+        cert_dir = "/etc/v2ray/ssl"
+        os.makedirs(cert_dir, exist_ok=True)
+        
+        subprocess.run([
+            "openssl", "req", "-new", "-x509", "-nodes",
+            "-days", "365", "-newkey", "rsa:2048",
+            "-keyout", f"{cert_dir}/self.key",
+            "-out", f"{cert_dir}/self.crt",
+            "-subj", "/CN=localhost"
+        ], check=True)
+    
     def configure_tls(self, domain: str) -> None:
         """Configure les certificats TLS pour un domaine"""
         print(f"\n{Colors.YELLOW}Configuration TLS pour le domaine {domain}...{Colors.NC}")
@@ -684,105 +696,97 @@ class V2RayInstaller:
                 return False
     
     def complete_installation(self) -> None:
-        """Installation complète de V2Ray avec support CDN avancé"""
+        """Installation complète avec gestion robuste des cas TLS"""
         print(f"{Colors.GREEN}=== Installation de V2Ray Premium ==={Colors.NC}")
         
         # 1. Sélection du protocole
         self.protocol = self.select_protocol()
         
         # 2. Configuration du domaine
-        use_domain = input("Utiliser un domaine personnalisé ? (o/N): ").lower() == 'o'
+        use_domain = False
         self.domain = ""
-        if use_domain:
-            self.domain = input("Entrez votre domaine complet (ex: mon-domaine.com): ")
-            # Vérification DNS
+        if input("Utiliser un domaine personnalisé ? (o/N): ").lower() == 'o':
+            self.domain = input("Entrez votre domaine complet (ex: exemple.com): ").strip()
             if not self.verify_dns(self.domain):
-                print(f"{Colors.YELLOW}Avertissement: Le domaine ne semble pas pointer vers cette IP{Colors.NC}")
+                print(f"{Colors.YELLOW}Avertissement: Le domaine ne pointe pas vers cette IP{Colors.NC}")
+            use_domain = True
         
-        # 3. Sélection du port
+        # 3. Sélection du port avec vérification TLS
         while True:
             try:
                 port_input = input(f"Port à utiliser [défaut: 443]: ") or "443"
                 self.port = int(port_input)
+                
+                # Vérification cohérence TLS
+                if self.port == 443 and not use_domain:
+                    print(f"{Colors.YELLOW}Attention: Le port 443 nécessite généralement un domaine pour TLS{Colors.NC}")
+                    if input("Continuer quand même ? (o/N): ").lower() != 'o':
+                        continue
+                
                 if self.check_port(self.port):
                     break
             except ValueError:
                 print(f"{Colors.RED}Port invalide!{Colors.NC}")
-        
+    
         # 4. Génération des identifiants
         if self.protocol == "trojan":
             self.uuid_or_password = self.generate_password()
-            print(f"{Colors.GREEN}Mot de passe généré: {Colors.YELLOW}{self.uuid_or_password}{Colors.NC}")
         else:
             self.uuid_or_password = self.generate_uuid()
-            print(f"{Colors.GREEN}UUID généré: {Colors.YELLOW}{self.uuid_or_password}{Colors.NC}")
-        
+        print(f"{Colors.GREEN}Identifiant généré: {Colors.YELLOW}{self.uuid_or_password}{Colors.NC}")
+    
         # 5. Sélection du transport
         self.transport = self.select_transport()
         
-        # 6. Configuration TLS avancée
-        self.tls_mode = self.select_tls_mode()
-        # Par cette version plus robuste :
-        if self.tls_mode == "tls":
-            if use_domain and hasattr(self, 'domain') and self.domain:
-                if not hasattr(self, 'configure_tls'):
-                    print(f"{Colors.YELLOW}La configuration TLS automatique n'est pas disponible{Colors.NC}")
-                else:
-                    self.configure_tls(self.domain)
-            else:
-                print(f"{Colors.YELLOW}Un domaine est requis pour la configuration TLS{Colors.NC}")
-                
-        # 7. Configuration CDN avancée
-        use_cdn = False
-        if use_domain:
-            print(f"\n{Colors.BLUE}=== Configuration CDN ==={Colors.NC}")
-            use_cdn = input("Voulez-vous configurer Cloudflare CDN ? (o/N): ").lower() == 'o'
+        # 6. Configuration TLS intelligente
+        if use_domain or self.port == 443:
+            print(f"{Colors.BLUE}Configuration TLS recommandée{Colors.NC}")
+            self.tls_mode = "tls"
+            if not use_domain:
+                print(f"{Colors.YELLOW}Utilisation d'un certificat auto-signé (domaine recommandé){Colors.NC}")
+        else:
+            self.tls_mode = self.select_tls_mode()
+        
+        # Configuration automatique pour Reality
+        if self.tls_mode == "reality":
+            self.configure_reality()
+            use_domain = True  # Reality nécessite un domaine
+        
+        # 7. Finalisation
+        self._finalize_installation(use_domain)
+    
+    def _finalize_installation(self, use_domain: bool):
+        """Gère les étapes finales de l'installation"""
+        print(f"\n{Colors.GREEN}=== Configuration Finale ==={Colors.NC}")
+        print(f"• Protocole: {Colors.YELLOW}{self.protocol.upper()}{Colors.NC}")
+        print(f"• Adresse: {Colors.YELLOW}{self.domain if use_domain else self.get_public_ip()}{Colors.NC}")
+        print(f"• Port: {Colors.YELLOW}{self.port}{Colors.NC}")
+        print(f"• Transport: {Colors.YELLOW}{self.transport.upper()}{Colors.NC}")
+        print(f"• Sécurité: {Colors.YELLOW}{self.tls_mode.upper()}{Colors.NC}")
+    
+        if not self._confirm_installation():
+            return
+    
+        # Installation
+        print(f"\n{Colors.YELLOW}Installation en cours...{Colors.NC}")
+        try:
+            self.install_dependencies()
+            self.install_v2ray()
             
-            if use_cdn:
-                print(f"\n{Colors.YELLOW}● Configuration requise pour Cloudflare:{Colors.NC}")
-                print("1. Activez le proxy (icône orange) dans l'interface DNS")
-                print("2. Configurez SSL/TLS sur 'Full (strict)'")
-                print("3. Activez WebSockets dans les paramètres Network")
-                
-                # Configuration API Cloudflare
-                print(f"\n{Colors.BLUE}● Authentification API:{Colors.NC}")
-                self.cf_manager.email = input("Email du compte Cloudflare: ").strip()
-                self.cf_manager.api_key = input("Clé API Global Cloudflare: ").strip()
-                self.cf_manager.domain = self.domain
-                
-                try:
-                    # Vérification des credentials
-                    if not self.cf_manager.test_connection():
-                        print(f"{Colors.RED}Erreur: Impossible de se connecter à l'API Cloudflare{Colors.NC}")
-                        raise Exception("Authentification API échouée")
-                    
-                    # Configuration DNS
-                    print(f"\n{Colors.YELLOW}Configuration DNS...{Colors.NC}")
-                    if not self.cf_manager.configure_dns():
-                        print(f"{Colors.YELLOW}Avertissement: Échec partiel de la configuration DNS{Colors.NC}")
-                    
-                    # Configuration SSL
-                    print(f"{Colors.YELLOW}Configuration SSL...{Colors.NC}")
-                    ssl_success = self.cf_manager.setup_ssl()
-                    
-                    if not ssl_success:
-                        print(f"{Colors.YELLOW}Avertissement: Configuration SSL partielle{Colors.NC}")
-                        print("Vous devrez peut-être importer manuellement les certificats")
-                    
-                    # Configuration des règles
-                    print(f"{Colors.YELLOW}Optimisation des règles...{Colors.NC}")
-                    self.cf_manager.configure_firewall_rules()
-                    
-                    print(f"\n{Colors.GREEN}Configuration Cloudflare terminée avec succès!{Colors.NC}")
-                    
-                except Exception as e:
-                    print(f"\n{Colors.RED}Erreur lors de la configuration Cloudflare: {str(e)}{Colors.NC}")
-                    if input("Voulez-vous continuer sans CDN ? (O/n): ").lower() != 'n':
-                        use_cdn = False
-                        print(f"{Colors.YELLOW}Continuer sans configuration CDN...{Colors.NC}")
-                    else:
-                        print(f"{Colors.RED}Annulation de l'installation{Colors.NC}")
-                        return
+            # Gestion spéciale TLS
+            if self.tls_mode == "tls":
+                if use_domain:
+                    self.configure_tls(self.domain)
+                else:
+                    print(f"{Colors.YELLOW}Génération d'un certificat auto-signé...{Colors.NC}")
+                    self.generate_self_signed_cert()
+            
+            self.configure_v2ray(use_cdn=False)
+            self.show_client_config(use_domain)
+            
+        except Exception as e:
+            print(f"\n{Colors.RED}Erreur lors de l'installation: {str(e)}{Colors.NC}")
+            sys.exit(1)
 
     def show_installation_summary(self, use_domain: bool, use_cdn: bool):
         """Affiche un récapitulatif complet de l'installation"""
