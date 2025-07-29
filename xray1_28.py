@@ -332,28 +332,26 @@ class V2RayInstaller:
             print(f"{Colors.RED}Erreur lors de la configuration TLS: {e}{Colors.NC}")
             sys.exit(1)
         
-    def install_dependencies(self) -> None:
-        """Installation des dépendances"""
-        self.log(f"Installation des dépendances pour {self.os_info.get('ID', 'unknown')}")
-        print(f"{Colors.YELLOW}Installation des dépendances système...{Colors.NC}")
+    def install_dependencies(self):
+        """Installation complète des dépendances"""
+        deps = {
+            'ubuntu': ['curl', 'wget', 'jq', 'uuid-runtime', 'net-tools', 'openssl', 'certbot', 'qrencode'],
+            'centos': ['curl', 'wget', 'jq', 'util-linux', 'net-tools', 'openssl', 'certbot', 'qrencode']
+        }
+        
+        print(f"{Colors.YELLOW}Installation des dépendances...{Colors.NC}")
         
         try:
             if self.os_info.get('ID') in ['ubuntu', 'debian']:
-                subprocess.run(['apt-get', 'update'], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                subprocess.run(['apt-get', 'install', '-y', 'curl', 'wget', 'sudo', 'jq', 'uuid-runtime', 'net-tools', 'openssl'], 
-                              check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            elif self.os_info.get('ID') in ['centos', 'rhel', 'fedora']:
-                subprocess.run(['yum', 'update', '-y'], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                subprocess.run(['yum', 'install', '-y', 'curl', 'wget', 'sudo', 'jq', 'util-linux', 'net-tools', 'openssl'], 
-                              check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            else:
-                print(f"{Colors.RED}Système d'exploitation non supporté!{Colors.NC}")
-                sys.exit(1)
+                subprocess.run(['apt-get', 'update'], check=True)
+                subprocess.run(['apt-get', 'install', '-y'] + deps['ubuntu'], check=True)
+            elif self.os_info.get('ID') in ['centos', 'rhel']:
+                subprocess.run(['yum', 'install', '-y'] + deps['centos'], check=True)
+                subprocess.run(['systemctl', 'enable', 'certbot.timer'], check=True)
             
-            self.log("Dépendances installées avec succès")
+            print(f"{Colors.GREEN}Dépendances installées avec succès!{Colors.NC}")
         except subprocess.CalledProcessError as e:
-            print(f"{Colors.RED}Échec de l'installation des dépendances!{Colors.NC}")
-            self.log(f"Erreur d'installation des dépendances: {e}")
+            print(f"{Colors.RED}Échec de l'installation des dépendances: {e}{Colors.NC}")
             sys.exit(1)
 
     def install_v2ray(self) -> None:
@@ -416,6 +414,24 @@ class V2RayInstaller:
         
         config["inbounds"].append(inbound)
         return config
+
+    def verify_domain(self, domain: str) -> bool:
+        """Vérification complète du domaine"""
+        try:
+            # Vérification DNS
+            ip = socket.gethostbyname(domain)
+            server_ip = self.get_public_ip()
+            
+            # Vérification certificat
+            cert_path = f"/etc/letsencrypt/live/{domain}"
+            if not os.path.exists(cert_path):
+                print(f"{Colors.YELLOW}Certificat Let's Encrypt manquant pour {domain}{Colors.NC}")
+                return False
+                
+            return ip == server_ip
+        except Exception as e:
+            print(f"{Colors.RED}Erreur de vérification du domaine: {e}{Colors.NC}")
+            return False
     
     def get_public_ip(self) -> str:
         """Récupère l'IP publique du serveur avec plusieurs méthodes de fallback"""
@@ -532,14 +548,18 @@ class V2RayInstaller:
             "disableInsecureEncryption": True
         }
     
-        if self.protocol == "vless":
+        if self.protocol == "trojan":
             return {
-                **common_settings,
-                "decryption": "none",
                 "clients": [{
-                    **common_settings["clients"][0],
+                    "password": self.uuid_or_password,
                     "flow": "xtls-rprx-vision" if self.tls_mode == "tls" else ""
-                }]
+                }],
+                "fallbacks": [
+                    {
+                        "dest": 80,
+                        "xver": 1
+                    }
+                ]
             }
         elif self.protocol == "trojan":
             return {
@@ -561,56 +581,56 @@ class V2RayInstaller:
         }
     
     def _get_stream_settings(self, use_cdn: bool) -> dict:
-        """Configuration avancée du transport"""
+        """Configuration avancée du transport corrigée"""
         stream_settings = {
             "network": self.transport,
             "security": self.tls_mode,
-            "tlsSettings": {},
-            "xtlsSettings": {},
-            "transportSettings": {}
-        }
-    
-        # Configuration TLS
-        if self.tls_mode == "tls":
-            stream_settings["tlsSettings"] = {
+            "tlsSettings": {
                 "serverName": self.domain if use_cdn else "",
                 "alpn": ["h2", "http/1.1"],
                 "certificates": [self._get_certificate_config(use_cdn)],
                 "fingerprint": "chrome"
-            }
+            } if self.tls_mode == "tls" else None,
+            "realitySettings": {} if self.tls_mode == "reality" else None
+        }
     
         # Configuration spécifique au transport
         if self.transport == "ws":
             stream_settings["wsSettings"] = {
-                "path": f"/{self.protocol}-path",
+                "path": f"/{self.generate_random_path()}",
                 "headers": {
                     "Host": self.domain if use_cdn else ""
                 }
             }
         elif self.transport == "grpc":
             stream_settings["grpcSettings"] = {
-                "serviceName": f"{self.protocol}-service",
+                "serviceName": f"{self.generate_random_service_name()}",
                 "multiMode": True
             }
-        elif self.transport == "h2":
-            stream_settings["httpSettings"] = {
-                "host": [self.domain] if use_cdn else [],
-                "path": f"/{self.protocol}-http"
-            }
-    
-        return stream_settings
+        
+        return {k: v for k, v in stream_settings.items() if v is not None}
 
+    def generate_random_service_name(self) -> str:
+        """Génère un nom de service gRPC discret"""
+        prefixes = ["api", "data", "sync", "update", "cloud"]
+        suffixes = ["service", "gateway", "stream", "channel"]
+        return f"{random.choice(prefixes)}-{random.choice(suffixes)}-{random.randint(1000,9999)}"
+            
     def _get_certificate_config(self, use_cdn: bool) -> dict:
-        """Gestion des certificats SSL"""
-        if use_cdn and hasattr(self, 'cf_manager'):
+        """Gestion robuste des certificats SSL"""
+        cert_dir = "/etc/letsencrypt/live" if use_cdn else "/etc/v2ray/ssl"
+        
+        if use_cdn and os.path.exists(f"{cert_dir}/{self.domain}"):
             return {
-                "certificateFile": "/etc/v2ray/cloudflare_cert.pem",
-                "keyFile": "/etc/v2ray/cloudflare_key.pem"
+                "certificateFile": f"{cert_dir}/{self.domain}/fullchain.pem",
+                "keyFile": f"{cert_dir}/{self.domain}/privkey.pem"
             }
         else:
+            # Générer un certificat auto-signé si nécessaire
+            self.generate_self_signed_cert()
             return {
-                "certificateFile": "/etc/v2ray/self_signed_cert.pem",
-                "keyFile": "/etc/v2ray/self_signed_key.pem"
+                "certificateFile": "/etc/v2ray/ssl/self.crt",
+                "keyFile": "/etc/v2ray/ssl/self.key"
             }
     
     def ensure_ssl_dir(self):
@@ -856,65 +876,33 @@ class V2RayInstaller:
         
         input("\nAppuyez sur Entrée pour continuer...")
 
-    def show_client_config(self, use_domain: bool = False) -> None:
-        """Affiche la configuration client avec QR Code"""
+    def show_client_config(self, use_domain: bool = False):
+        """Génère une configuration client optimisée"""
         address = self.domain if use_domain else self.get_public_ip()
         
-        print(f"\n{Colors.GREEN}=== CONFIGURATION CLIENT ==={Colors.NC}")
-        
-        if self.protocol == "vless":
-            config = f"vless://{self.uuid_or_password}@{address}:{self.port}?" \
-                    f"security={self.tls_mode}&type={self.transport}" \
-                    f"&path=%2F{self.protocol}-path" \
-                    f"&host={self.domain}" \
-                    f"&fp=chrome#V2Ray-{self.protocol}"
-        
-        elif self.protocol == "vmess":
-            vmess_config = {
-                "v": "2",
-                "ps": f"V2Ray-{address}",
-                "add": address,
-                "port": str(self.port),
-                "id": self.uuid_or_password,
-                "aid": "0",
-                "net": self.transport,
-                "type": "none",
-                "host": self.domain,
-                "path": f"/{self.protocol}-path",
-                "tls": self.tls_mode,
-                "sni": self.domain,
-                "alpn": "h2,http/1.1",
-                "fp": "chrome"
+        if self.protocol == "trojan":
+            config = {
+                "protocol": "trojan",
+                "address": address,
+                "port": self.port,
+                "password": self.uuid_or_password,
+                "network": self.transport,
+                "tls": {
+                    "enabled": self.tls_mode == "tls",
+                    "serverName": self.domain if use_domain else address,
+                    "alpn": ["h2", "http/1.1"],
+                    "fingerprint": "chrome"
+                }
             }
-            config = f"vmess://{base64.b64encode(json.dumps(vmess_config).encode()).decode()}"
+            if self.transport == "grpc":
+                config["grpc"] = {
+                    "serviceName": self.stream_settings.get("grpcSettings", {}).get("serviceName", "trojan-grpc")
+                }
         
-        elif self.protocol == "trojan":
-            config = f"trojan://{self.uuid_or_password}@{address}:{self.port}?" \
-                    f"security={self.tls_mode}&type={self.transport}" \
-                    f"&path=%2F{self.protocol}-path" \
-                    f"&sni={self.domain}#Trojan-{self.transport}"
+        print(json.dumps(config, indent=2))
         
-        print(f"\n{Colors.YELLOW}Lien de configuration:{Colors.NC}")
-        print(config)
-        
-        # Génération du QR Code si possible
-        try:
-            import qrcode
-            qr = qrcode.QRCode()
-            qr.add_data(config)
-            qr.print_ascii()
-        except ImportError:
-            print(f"{Colors.YELLOW}Installez 'qrcode' pour afficher un QR Code: pip install qrcode{Colors.NC}")
-        
-        print(f"\n{Colors.GREEN}Paramètres manuels:{Colors.NC}")
-        print(f"Adresse: {address}")
-        print(f"Port: {self.port}")
-        print(f"ID/Mot de passe: {self.uuid_or_password}")
-        print(f"Protocole: {self.protocol}")
-        print(f"Transport: {self.transport}")
-        print(f"Chemin: /{self.protocol}-path")
-        print(f"TLS: {self.tls_mode}")
-        print(f"SNI: {self.domain}")
+        # Génération du lien QR code
+        self.generate_qr_code(config)
             
     def show_full_client_config(self, use_cdn: bool = False) -> None:
         """
