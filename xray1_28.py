@@ -1544,35 +1544,35 @@ class V2RayInstaller:
             print(f"{Colors.RED}Échec de la modification de la configuration: {e}{Colors.NC}")
             
    
-def main_menu(self):
-    while True:
-        print("\n" + "="*50)
-        print("Menu Principal".center(50))
-        print("="*50)
-        print("1. Installation complète")
-        print("2. Mise à jour de V2Ray")
-        print("3. Désinstaller V2Ray")
-        print("4. Gérer les configurations")
-        print("5. Voir le statut du service")
-        print("6. Quitter")
-        
-        choice = input("Choisissez une option [1-6]: ").strip()
-        
-        if choice == '1':
-            self.full_installation()
-        elif choice == '2':
-            self.update_v2ray()  # Cette méthode doit exister
-        elif choice == '3':
-            self.uninstall()
-        elif choice == '4':
-            self.manage_configs()
-        elif choice == '5':
-            self.check_status()
-        elif choice == '6':
-            exit(0)
-        else:
-            print("Option invalide, veuillez réessayer.")
-
+    def main_menu(self):
+        while True:
+            print("\n" + "="*50)
+            print("Menu Principal".center(50))
+            print("="*50)
+            print("1. Installation complète")
+            print("2. Mise à jour de V2Ray")
+            print("3. Désinstaller V2Ray")
+            print("4. Gérer les configurations")
+            print("5. Voir le statut du service")
+            print("6. Quitter")
+            
+            choice = input("Choisissez une option [1-6]: ").strip()
+            
+            if choice == '1':
+                self.full_installation()
+            elif choice == '2':
+                self.update_v2ray()  # Cette méthode doit exister
+            elif choice == '3':
+                self.uninstall()
+            elif choice == '4':
+                self.manage_configs()
+            elif choice == '5':
+                self.check_status()
+            elif choice == '6':
+                exit(0)
+            else:
+                print("Option invalide, veuillez réessayer.")
+    
     def main(self) -> None:
         """Point d'entrée principal"""
         self.check_root()
