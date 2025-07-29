@@ -363,6 +363,7 @@ class V2RayInstaller:
         except subprocess.CalledProcessError as e:
             print(f"{Colors.RED}Échec de l'installation des dépendances: {e}{Colors.NC}")
             sys.exit(1)
+            
     def generate_random_path(self) -> str:
         """Génère un chemin aléatoire pour WS/HTTP"""
         segments = [
@@ -797,33 +798,102 @@ class V2RayInstaller:
         except ImportError:
             print(f"{Colors.YELLOW}Installez 'qrcode' pour les QR Codes: pip install qrcode{Colors.NC}")
 
-    def generate_v2ray_url(config):
-        # Vérification des champs obligatoires
-        required_fields = ['protocol', 'address', 'port', 'id']
-        for field in required_fields:
-            if field not in config:
-                raise ValueError(f"Champ manquant dans la configuration : {field}")
+    def generate_v2ray_url(config, as_qrcode=False):
+        """
+        Génère un lien d'importation V2Ray valide avec gestion d'erreur améliorée
+        et option de génération de QR Code.
     
-        # Construction des paramètres de base
-        base_url = f"{config['protocol']}://{config['id']}@{config['address']}:{config['port']}"
-        
-        # Paramètres optionnels
-        params = {
-            'encryption': 'none',
-            'flow': config.get('flow', ''),
-            'type': config.get('network', ''),
-            'security': 'tls' if config.get('tls', {}).get('enabled', False) else '',
-            'sni': config.get('tls', {}).get('serverName', ''),
-            'alpn': ','.join(config.get('tls', {}).get('alpn', [])),
-            'fp': config.get('tls', {}).get('fingerprint', '')
-        }
-        
-        # Filtrer les paramètres vides
-        params = {k: v for k, v in params.items() if v}
-        
-        # Construction de l'URL finale
-        query_string = '&'.join(f"{k}={v}" for k, v in params.items())
-        return f"{base_url}?{query_string}#{config['address']}"
+        Args:
+            config (dict): Configuration V2Ray/VLess
+            as_qrcode (bool): Si True, retourne un objet QR Code plutôt qu'une URL
+    
+        Returns:
+            str|qrcode.QRCode: URL ou QR Code selon le paramètre as_qrcode
+    
+        Raises:
+            ValueError: Si la configuration est invalide
+        """
+        try:
+            # Validation approfondie
+            required_fields = {
+                'protocol': ['vless', 'vmess', 'trojan'],
+                'address': str,
+                'port': (int, lambda x: 0 < x <= 65535),
+                'id': (str, lambda x: len(x) == 36)  # UUID validation
+            }
+    
+            for field, validator in required_fields.items():
+                if field not in config:
+                    raise ValueError(f"Champ obligatoire manquant : {field}")
+                
+                if isinstance(validator, list):  # Check valid protocol
+                    if config[field] not in validator:
+                        raise ValueError(f"Protocole invalide : {config[field]}")
+                elif isinstance(validator, tuple):  # Type and value check
+                    if not isinstance(config[field], validator[0]):
+                        raise TypeError(f"{field} doit être de type {validator[0].__name__}")
+                    if not validator[1](config[field]):
+                        raise ValueError(f"Valeur invalide pour {field}")
+            
+            # Construction URL sécurisée
+            params = {
+                'type': config.get('network', 'tcp'),
+                'security': 'tls' if config.get('tls', {}).get('enabled', False) else 'none',
+                'flow': config.get('flow', ''),
+                'encryption': 'none',
+                'sni': config.get('tls', {}).get('serverName', config['address']),
+                'fp': config.get('tls', {}).get('fingerprint', 'chrome'),
+                'alpn': ','.join(config.get('tls', {}).get('alpn', ['h2', 'http/1.1'])),
+                'pbk': config.get('tls', {}).get('publicKey', ''),
+                'sid': config.get('tls', {}).get('shortId', '')
+            }
+    
+            # Nettoyage des paramètres
+            params = {k: urllib.parse.quote(str(v)) for k, v in params.items() if v and str(v) not in ('none', '')}
+            
+            # Construction finale
+            url = f"{config['protocol']}://{config['id']}@{config['address']}:{config['port']}?{'&'.join(f'{k}={v}' for k, v in params.items())}#{urllib.parse.quote(config.get('remark', config['address']))}"
+    
+            if as_qrcode:
+                try:
+                    import qrcode
+                    qr = qrcode.QRCode(
+                        version=1,
+                        error_correction=qrcode.constants.ERROR_CORRECT_L,
+                        box_size=10,
+                        border=4,
+                    )
+                    qr.add_data(url)
+                    qr.make(fit=True)
+                    return qr.make_image(fill_color="black", back_color="white")
+                except ImportError:
+                    raise ImportError("Le module 'qrcode' est requis. Installez-le avec: pip install qrcode")
+    
+            return url
+    
+        except Exception as e:
+            raise ValueError(f"Erreur de génération d'URL: {str(e)}") from e
+    
+    def generate_config_url(self, config):
+        """Génère le lien URL de confirmation"""
+        try:
+            import urllib.parse
+            base_url = f"vless://{config['id']}@{config['address']}:{config['port']}"
+            params = {
+                'type': config.get('network', 'tcp'),
+                'security': 'tls',
+                'flow': config.get('flow', ''),
+                'encryption': 'none',
+                'host': config.get('address', ''),
+                'fp': config.get('tls', {}).get('fingerprint', 'chrome'),
+                'alpn': ','.join(config.get('tls', {}).get('alpn', [])),
+                'sni': config.get('tls', {}).get('serverName', config['address'])
+            }
+            query = urllib.parse.urlencode({k: v for k, v in params.items() if v})
+            return f"{base_url}?{query}#{config['address']}"
+        except Exception as e:
+            print(f"Erreur lors de la génération du lien: {str(e)}")
+            return None
 
     def validate_config(config):
         errors = []
@@ -1318,36 +1388,35 @@ class V2RayInstaller:
         print("4. Dans Network:")
         print("   - WebSockets: Activé")
     
-    def main_menu(self) -> None:
-        """Menu principal"""
+    def main_menu(self):
+        menu_options = {
+            '1': ('Installation complète', self.full_installation),
+            '2': ('Mise à jour de V2Ray', self.update_v2ray),
+            '3': ('Désinstaller V2Ray', self.uninstall),
+            '4': ('Gérer les configurations', self.manage_configs),
+            '5': ('Voir le statut du service', self.check_status),
+            '6': ('Quitter', exit)
+        }
+    
         while True:
-            print(f"{Colors.GREEN}=== Menu Principal V2Ray Premium ==={Colors.NC}")
-            print("1. Installation complète")
-            print("2. Mise à jour de V2Ray")
-            print("3. Désinstaller V2Ray")
-            print("4. Gérer les configurations")
-            print("5. Voir le statut du service")
-            print("6. Quitter")
+            print("\n" + "="*50)
+            print("Menu Principal".center(50))
+            print("="*50)
             
-            choice = input("Choisissez une option [1-6]: ")
+            for key, (text, _) in menu_options.items():
+                print(f"{key}. {text}")
             
-            if choice == '1':
-                self.complete_installation()
-            elif choice == '2':
-                self.update_v2ray()
-            elif choice == '3':
-                self.uninstall_v2ray()
-            elif choice == '4':
-                self.manage_configurations()
-            elif choice == '5':
-                self.service_status()
-            elif choice == '6':
-                sys.exit(0)
+            choice = input("Choisissez une option [1-6]: ").strip()
+            
+            if choice in menu_options:
+                try:
+                    menu_options[choice][1]()
+                except Exception as e:
+                    print(f"Erreur: {str(e)}")
+                    input("Appuyez sur Entrée pour continuer...")
             else:
-                print(f"{Colors.RED}Option invalide!{Colors.NC}")
-            
-            input("Appuyez sur Entrée pour continuer...")
-
+                print("Option invalide, veuillez réessayer.")
+    
     def manage_configurations(self) -> None:
         """Gestion des configurations"""
         print(f"{Colors.GREEN}=== Gestion des configurations ==={Colors.NC}")
