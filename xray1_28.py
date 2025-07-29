@@ -768,9 +768,7 @@ class V2RayInstaller:
             # Corriger l'appel à show_client_config
             if hasattr(self, 'show_client_config'):
                 self.show_client_config(use_domain)
-                else:
-                    # Pour la compatibilité avec les anciennes versions
-                    self.show_client_config(use_domain)
+                
             else:
                 print(f"{Colors.YELLOW}Avertissement: Méthode show_client_config non trouvée{Colors.NC}")
             
