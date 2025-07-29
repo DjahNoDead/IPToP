@@ -1473,36 +1473,94 @@ class V2RayInstaller:
             self.rollback_installation()
         finally:
             input("\nAppuyez sur Entrée pour retourner au menu...")
-        
+    
+    def uninstall(self):
+        """Désinstalle complètement V2Ray/Xray"""
+        print("\n=== Désinstallation ===")
+        try:
+            # Arrêt du service
+            os.system("systemctl stop xray 2>/dev/null")
+            
+            # Désinstallation
+            os.system("bash -c \"$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)\" @ remove --purge")
+            
+            # Nettoyage
+            os.system("rm -rf /usr/local/etc/xray /var/log/xray")
+            print("Désinstallation terminée avec succès!")
+        except Exception as e:
+            print(f"Erreur lors de la désinstallation: {str(e)}")
+        input("\nAppuyez sur Entrée pour continuer...")
+    
+    def manage_configs(self):
+        """Gère les configurations existantes"""
+        print("\nGestion des configurations")
+        # Implémentez la logique de gestion ici
+        input("\nAppuyez sur Entrée pour continuer...")
+    
+    def check_status(self):
+        """Vérifie le statut du service"""
+        os.system("systemctl status xray")
+        input("\nAppuyez sur Entrée pour continuer...")
+            
     def main_menu(self):
         menu_options = {
-            '1': ('Installation complète', self.full_installation),
+            '1': ('Installation complète', self._finalize_installation),
             '2': ('Mise à jour de V2Ray', self.update_v2ray),
             '3': ('Désinstaller V2Ray', self.uninstall),
             '4': ('Gérer les configurations', self.manage_configs),
             '5': ('Voir le statut du service', self.check_status),
-            '6': ('Quitter', exit)
+            '6': ('Quitter', self.quit_installer)
         }
     
         while True:
-            print("\n" + "="*50)
-            print("Menu Principal".center(50))
-            print("="*50)
-            
-            for key, (text, _) in menu_options.items():
-                print(f"{key}. {text}")
-            
-            choice = input("Choisissez une option [1-6]: ").strip()
-            
-            if choice in menu_options:
-                try:
+            try:
+                print("\n" + "="*50)
+                print(" MENU PRINCIPAL ".center(50, '='))
+                print("="*50)
+                
+                for key, (text, _) in sorted(menu_options.items()):
+                    print(f" {key}. {text}")
+                
+                choice = input("\nVotre choix [1-6]: ").strip()
+                
+                if choice in menu_options:
                     menu_options[choice][1]()
-                except Exception as e:
-                    print(f"Erreur: {str(e)}")
-                    input("Appuyez sur Entrée pour continuer...")
-            else:
-                print("Option invalide, veuillez réessayer.")
-                  
+                else:
+                    print("\n⚠️ Option invalide! Veuillez choisir entre 1 et 6.")
+                    
+            except KeyboardInterrupt:
+                self.quit_installer()
+            except Exception as e:
+                print(f"\n❌ Erreur: {str(e)}")
+                traceback.print_exc()
+                input("\n⚠️ Appuyez sur Entrée pour continuer...")
+    
+    def quit_installer(self):
+        """Quitte proprement l'installateur"""
+        print("\nFermeture de l'installateur...")
+        exit(0)
+    
+    def update_v2ray(self):
+        """Met à jour V2Ray/Xray en toute sécurité"""
+        print("\n=== Mise à jour ===")
+        try:
+            # Sauvegarde de l'ancienne configuration
+            if os.path.exists("/usr/local/etc/xray/config.json"):
+                os.system("cp /usr/local/etc/xray/config.json /tmp/xray_config.bak")
+            
+            # Mise à jour
+            os.system("bash -c \"$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)\" @ install")
+            
+            # Restauration de la configuration
+            if os.path.exists("/tmp/xray_config.bak"):
+                os.system("mv /tmp/xray_config.bak /usr/local/etc/xray/config.json")
+                os.system("systemctl restart xray")
+            
+            print("\n✅ Mise à jour terminée avec succès!")
+        except Exception as e:
+            print(f"\n❌ Échec de la mise à jour: {str(e)}")
+        input("\nAppuyez sur Entrée pour continuer...")
+                      
     def show_config(self) -> None:
         """Afficher la configuration actuelle"""
         try:
