@@ -579,7 +579,21 @@ class V2RayInstaller:
             "level": 0,
             "email": f"user@{socket.gethostname()}"
         }
+
+    def generate_random_path(self) -> str:
+        """Génère un chemin aléatoire pour WS/HTTP"""
+        segments = [
+            "api", "data", "graphql", "rest", 
+            "v2ray", "app", "ws", "stream"
+        ]
+        return f"/{random.choice(segments)}-{random.randint(1000,9999)}/path"
     
+    def generate_random_service_name(self) -> str:
+        """Génère un nom de service gRPC aléatoire"""
+        prefixes = ["api", "data", "sync", "cloud", "grpc"]
+        suffixes = ["service", "channel", "gateway", "stream"]
+        return f"{random.choice(prefixes)}-{random.choice(suffixes)}-{random.randint(100,999)}"
+        
     def _get_stream_settings(self, use_cdn: bool) -> dict:
         """Configuration avancée du transport corrigée"""
         stream_settings = {
@@ -591,25 +605,24 @@ class V2RayInstaller:
                 "certificates": [self._get_certificate_config(use_cdn)],
                 "fingerprint": "chrome"
             } if self.tls_mode == "tls" else None,
-            "realitySettings": {} if self.tls_mode == "reality" else None
         }
     
         # Configuration spécifique au transport
         if self.transport == "ws":
             stream_settings["wsSettings"] = {
-                "path": f"/{self.generate_random_path()}",
+                "path": self.generate_random_path(),
                 "headers": {
                     "Host": self.domain if use_cdn else ""
                 }
             }
         elif self.transport == "grpc":
             stream_settings["grpcSettings"] = {
-                "serviceName": f"{self.generate_random_service_name()}",
+                "serviceName": self.generate_random_service_name(),
                 "multiMode": True
             }
         
         return {k: v for k, v in stream_settings.items() if v is not None}
-
+    
     def generate_random_service_name(self) -> str:
         """Génère un nom de service gRPC discret"""
         prefixes = ["api", "data", "sync", "update", "cloud"]
