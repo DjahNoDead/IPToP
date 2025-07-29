@@ -469,54 +469,51 @@ class V2RayInstaller:
             return len(parts) == 4 and all(0 <= int(part) < 256 for part in parts)
         except:
             return False
+            
+    def configure_v2ray(self, use_cdn: bool = False) -> None:
+        """Configuration unifiée de V2Ray avec support CDN avancé"""
+        self.log(f"Configuration de V2Ray avec {self.protocol} sur le port {self.port} via {self.transport} (TLS: {self.tls_mode})")
         
-    def configure_v2ray(self, use_cdn=False):  # Ajoutez ce paramètre
-        """Configure V2Ray avec gestion optionnelle du CDN"""
-        try:
-            # Configuration de base
-            config = {
-                "inbounds": [{
-                    "port": self.port,
-                    "protocol": self.protocol.lower(),
-                    "settings": self._get_protocol_settings(),
-                    "streamSettings": self._get_stream_settings(use_cdn)
-                }],
-                "outbounds": [{"protocol": "freedom"}]
-            }
-            
-            if use_cdn and self.domain:
-                config = self._apply_cdn_config(config)
-                
-            self._save_config(config)
-            print_color("✓ Configuration V2Ray appliquée", Colors.GREEN)
-            
-        except Exception as e:
-            print_color(f"Erreur de configuration: {str(e)}", Colors.RED)
-            sys.exit(1)
+        # 1. Préparation de l'environnement
+        self.ensure_v2ray_dir()
+        self.ensure_ssl_dir()
     
-    def _get_stream_settings(self, use_cdn):
-        """Retourne les paramètres de flux selon la configuration"""
-        settings = {
-            "network": self.transport,
-            "security": self.tls_mode
+        # 2. Génération de la configuration unifiée
+        config = {
+            "log": {
+                "access": "/var/log/v2ray/access.log",
+                "error": "/var/log/v2ray/error.log",
+                "loglevel": "warning"
+            },
+            "inbounds": [self._generate_inbound(use_cdn)],
+            "outbounds": [
+                {
+                    "protocol": "freedom",
+                    "tag": "direct"
+                },
+                {
+                    "protocol": "blackhole",
+                    "tag": "blocked"
+                }
+            ],
+            "routing": {
+                "domainStrategy": "IPIfNonMatch",
+                "rules": [
+                    {
+                        "type": "field",
+                        "ip": ["geoip:private"],
+                        "outboundTag": "blocked"
+                    }
+                ]
+            }
         }
-        
-        if self.tls_mode == "tls" and self.domain:
-            settings["tlsSettings"] = {
-                "serverName": self.domain,
-                "certificates": self._get_certificates(use_cdn)
-            }
-        
-        return settings
     
-    def _get_certificates(self, use_cdn):
-        """Gère les certificats selon le mode CDN"""
-        if use_cdn:
-            return [{
-                "certificateFile": f"/etc/letsencrypt/live/{self.domain}/fullchain.pem",
-                "keyFile": f"/etc/letsencrypt/live/{self.domain}/privkey.pem"
-            }]
-        return []
+        # 3. Sauvegarde de la configuration
+        config_path = "/etc/v2ray/config.json"
+        with open(config_path, 'w') as f:
+            json.dump(config, f, indent=2)
+        
+        print(f"{Colors.GREEN}Configuration sauvegardée dans {config_path}{Colors.NC}")
     
     def _generate_inbound(self, use_cdn: bool) -> dict:
         """Génère la configuration inbound unifiée"""
@@ -581,6 +578,75 @@ class V2RayInstaller:
             "level": 0,
             "email": f"user@{socket.gethostname()}"
         }
+    
+    def _get_stream_settings(self, use_cdn: bool) -> dict:
+        """Configuration avancée du transport"""
+        stream_settings = {
+            "network": self.transport,
+            "security": self.tls_mode,
+            "tlsSettings": {},
+            "xtlsSettings": {},
+            "transportSettings": {}
+        }
+    
+        # Configuration TLS
+        if self.tls_mode == "tls":
+            stream_settings["tlsSettings"] = {
+                "serverName": self.domain if use_cdn else "",
+                "alpn": ["h2", "http/1.1"],
+                "certificates": [self._get_certificate_config(use_cdn)],
+                "fingerprint": "chrome"
+            }
+    
+        # Configuration spécifique au transport
+        if self.transport == "ws":
+            stream_settings["wsSettings"] = {
+                "path": f"/{self.protocol}-path",
+                "headers": {
+                    "Host": self.domain if use_cdn else ""
+                }
+            }
+        elif self.transport == "grpc":
+            stream_settings["grpcSettings"] = {
+                "serviceName": f"{self.protocol}-service",
+                "multiMode": True
+            }
+        elif self.transport == "h2":
+            stream_settings["httpSettings"] = {
+                "host": [self.domain] if use_cdn else [],
+                "path": f"/{self.protocol}-http"
+            }
+    
+        return stream_settings
+
+def _get_certificate_config(self, use_cdn: bool) -> dict:
+    """Gestion des certificats SSL"""
+    if use_cdn and hasattr(self, 'cf_manager'):
+        return {
+            "certificateFile": "/etc/v2ray/cloudflare_cert.pem",
+            "keyFile": "/etc/v2ray/cloudflare_key.pem"
+        }
+    else:
+        return {
+            "certificateFile": "/etc/v2ray/self_signed_cert.pem",
+            "keyFile": "/etc/v2ray/self_signed_key.pem"
+        }
+
+def ensure_ssl_dir(self):
+    """Crée le répertoire SSL si inexistant"""
+    ssl_dir = "/etc/v2ray/ssl"
+    if not os.path.exists(ssl_dir):
+        os.makedirs(ssl_dir, mode=0o755, exist_ok=True)
+        self.log(f"Création du répertoire SSL {ssl_dir}")
+    
+    def _get_certificates(self, use_cdn):
+        """Gère les certificats selon le mode CDN"""
+        if use_cdn:
+            return [{
+                "certificateFile": f"/etc/letsencrypt/live/{self.domain}/fullchain.pem",
+                "keyFile": f"/etc/letsencrypt/live/{self.domain}/privkey.pem"
+            }]
+        return []
     
     def ensure_ssl_dir(self):
         """Crée le répertoire SSL si inexistant"""
