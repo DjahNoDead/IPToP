@@ -785,15 +785,15 @@ class V2RayInstaller:
                         return
 
     def show_installation_summary(self, use_domain: bool, use_cdn: bool):
-       """Affiche un récapitulatif complet de l'installation"""
+        """Affiche un récapitulatif complet de l'installation"""
         address = self.domain if use_domain else self.get_public_ip()
-                
+        
         print(f"\n{Colors.GREEN}=== Installation Réussie ==={Colors.NC}")
         print(f"Fichier de configuration: {Colors.YELLOW}{CONFIG_FILE}{Colors.NC}")
-                
+        
         # Configuration client optimisée
         print(f"\n{Colors.BLUE}=== Configuration Client ==={Colors.NC}")
-                
+        
         if self.protocol == "vless":
             client_config = f"vless://{self.uuid_or_password}@{address}:{self.port}?" \
                            f"type={self.transport}&security={self.tls_mode}" \
@@ -801,7 +801,7 @@ class V2RayInstaller:
                            f"&fp=chrome&alpn=h2,http/1.1" \
                            f"&path=%2F{self.protocol}-cdn-path" \
                            f"#{self.protocol}-cdn"
-                
+        
         elif self.protocol == "vmess":
             vmess_config = {
                 "v": "2",
@@ -820,7 +820,7 @@ class V2RayInstaller:
                 "fp": "chrome"
             }
             client_config = f"vmess://{base64.b64encode(json.dumps(vmess_config).encode()).decode()}"
-                
+        
         elif self.protocol == "trojan":
             client_config = f"trojan://{self.uuid_or_password}@{address}:{self.port}?" \
                           f"security={self.tls_mode}&type={self.transport}" \
@@ -828,9 +828,9 @@ class V2RayInstaller:
                           f"&alpn=h2,http/1.1" \
                           f"&path=%2F{self.protocol}-cdn-path" \
                           f"#{self.protocol}-cdn"
-                
+        
         print(client_config)
-                
+        
         # QR Code pour mobile
         try:
             import qrcode
@@ -839,7 +839,7 @@ class V2RayInstaller:
             qr.print_ascii()
         except:
             print(f"{Colors.YELLOW}Installez le module 'qrcode' pour afficher un QR Code{Colors.NC}")
-                
+        
         # Paramètres avancés
         print(f"\n{Colors.BLUE}=== Paramètres Avancés ==={Colors.NC}")
         print(f"• Adresse: {Colors.YELLOW}{address}{Colors.NC}")
@@ -850,7 +850,7 @@ class V2RayInstaller:
         print(f"• SNI: {Colors.YELLOW}{self.domain if use_domain else 'auto'}{Colors.NC}")
         print(f"• Fingerprint: {Colors.YELLOW}chrome{Colors.NC}")
         print(f"• ALPN: {Colors.YELLOW}h2,http/1.1{Colors.NC}")
-                
+        
         # Instructions CDN
         if use_cdn:
             print(f"\n{Colors.GREEN}=== Configuration Cloudflare ==={Colors.NC}")
@@ -860,9 +860,9 @@ class V2RayInstaller:
             print("   • Rules: Cache Level = Bypass")
             print("2. Vérifiez que le proxy est activé (icône orange)")
             print("3. Recommandé: Activer TLS 1.3 et HTTP/3")
-                
-        input("\nAppuyez sur Entrée pour continuer...")                             
-
+        
+        input("\nAppuyez sur Entrée pour continuer...")
+        
     def show_full_client_config(self, use_cdn: bool = False) -> None:
         """
         Affiche une configuration client complète avec tous les paramètres nécessaires
