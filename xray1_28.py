@@ -230,9 +230,19 @@ class V2RayInstaller:
             except ValueError:
                 print(f"{Colors.RED}Entrez un nombre valide!{Colors.NC}")
 
-    def generate_uuid(self) -> str:
-        """Génération d'UUID"""
-        return str(uuid.uuid4()).lower()
+    def _validate_config(self, config):
+        """Validation approfondie de la configuration"""
+        if not config.get("inbounds"):
+            raise ValueError("Aucune configuration inbound")
+    
+        for inbound in config["inbounds"]:
+            if inbound["protocol"] == "vless" and not inbound["settings"].get("clients"):
+                raise ValueError("VLESS nécessite des clients configurés")
+    
+    def generate_uuid(self):
+        """Génère un UUID sécurisé pour les clients"""
+        import uuid
+        return str(uuid.uuid4())
 
     def generate_password(self, length: int = 16) -> str:
         """Génération de mot de passe aléatoire"""
@@ -383,51 +393,60 @@ class V2RayInstaller:
 
     # À la place des 4 anciennes fonctions, gardez juste :   
     def generate_full_config(self, cloudflare=False):
-        """Génère une configuration complète avec tous les paramètres CDN"""
+        """Génère une configuration complète V2Ray avec options avancées
+        
+        Args:
+            cloudflare (bool): Si True, adapte la config pour Cloudflare (ports spécifiques, etc.)
+        
+        Returns:
+            dict: Configuration V2Ray complète avec entrées valides
+        """
+        # Configuration de base obligatoire
         config = {
-            "inbounds": [],
-            "outbounds": [
-                {
-                    "protocol": "freedom",
-                    "settings": {},
-                    "tag": "direct"
-                }
-            ],
-            "routing": {
-                "domainStrategy": "IPIfNonMatch",
-                "rules": []
-            }
-        }
-        
-        # Paramètres communs
-        inbound = {
-            "port": self.port,
-            "protocol": self.protocol,
-            "settings": self._get_protocol_settings(),
-            "streamSettings": self._get_stream_settings(cloudflare),
-            "sniffing": {
-                "enabled": True,
-                "destOverride": ["http", "tls"]
-            }
-        }
-        
-        # Fallback pour déguisement
-        if cloudflare:
-            inbound["settings"]["fallbacks"] = [
-                {
-                    "dest": 80,
-                    "xver": 1
+            "inbounds": [{
+                "port": 443 if not cloudflare else 8443,
+                "protocol": "vless",
+                "settings": {
+                    "clients": [{
+                        "id": self.generate_uuid(),
+                        "flow": "xtls-rprx-vision"
+                    }],
+                    "decryption": "none"
                 },
-                {
-                    "path": "/static",
-                    "dest": 80,
-                    "xver": 1
+                "streamSettings": {
+                    "network": "ws",
+                    "security": "tls",
+                    "tlsSettings": {
+                        "certificates": [{
+                            "certificateFile": "/path/to/cert.pem",
+                            "keyFile": "/path/to/privkey.pem"
+                        }],
+                        "alpn": ["h2", "http/1.1"],
+                        "fingerprint": "chrome"
+                    },
+                    "wsSettings": {
+                        "path": "/your-path",
+                        "headers": {
+                            "Host": self.domain
+                        }
+                    }
                 }
-            ]
-        
-        config["inbounds"].append(inbound)
+            }],
+            "outbounds": [{
+                "protocol": "freedom"
+            }]
+        }
+    
+        # Adaptations spécifiques pour Cloudflare
+        if cloudflare:
+            config["inbounds"][0]["port"] = 8443  # Port recommandé pour Cloudflare
+            config["inbounds"][0]["streamSettings"]["tlsSettings"]["serverName"] = self.domain
+            config["inbounds"][0]["streamSettings"]["wsSettings"]["headers"]["Host"] = self.domain
+    
+        # Validation finale
+        self._validate_config(config)
         return config
-
+        
     def verify_domain(self, domain: str) -> bool:
         """Vérification complète du domaine"""
         try:
@@ -777,7 +796,80 @@ class V2RayInstaller:
             qr.print_ascii()
         except ImportError:
             print(f"{Colors.YELLOW}Installez 'qrcode' pour les QR Codes: pip install qrcode{Colors.NC}")
+
+    def generate_v2ray_url(config):
+        # Vérification des champs obligatoires
+        required_fields = ['protocol', 'address', 'port', 'id']
+        for field in required_fields:
+            if field not in config:
+                raise ValueError(f"Champ manquant dans la configuration : {field}")
     
+        # Construction des paramètres de base
+        base_url = f"{config['protocol']}://{config['id']}@{config['address']}:{config['port']}"
+        
+        # Paramètres optionnels
+        params = {
+            'encryption': 'none',
+            'flow': config.get('flow', ''),
+            'type': config.get('network', ''),
+            'security': 'tls' if config.get('tls', {}).get('enabled', False) else '',
+            'sni': config.get('tls', {}).get('serverName', ''),
+            'alpn': ','.join(config.get('tls', {}).get('alpn', [])),
+            'fp': config.get('tls', {}).get('fingerprint', '')
+        }
+        
+        # Filtrer les paramètres vides
+        params = {k: v for k, v in params.items() if v}
+        
+        # Construction de l'URL finale
+        query_string = '&'.join(f"{k}={v}" for k, v in params.items())
+        return f"{base_url}?{query_string}#{config['address']}"
+
+    def validate_config(config):
+        errors = []
+        
+        # Vérification des champs obligatoires
+        required_fields = ['protocol', 'address', 'port', 'id']
+        for field in required_fields:
+            if field not in config:
+                errors.append(f"Champ obligatoire manquant : {field}")
+        
+        # Validation spécifique à VLess
+        if config.get('protocol') == 'vless':
+            if 'flow' not in config and config.get('tls', {}).get('enabled', False):
+                errors.append("Le champ 'flow' est requis pour VLESS avec TLS")
+        
+        # Validation TLS
+        if config.get('tls', {}).get('enabled', False):
+            if 'serverName' not in config.get('tls', {}):
+                errors.append("serverName est requis quand TLS est activé")
+        
+        return errors if errors else None
+
+    def format_config(config):
+        # Structure de base obligatoire
+        formatted = {
+            "protocol": config.get("protocol"),
+            "address": config.get("address"),
+            "port": config.get("port"),
+            "id": config.get("id"),
+            "flow": config.get("flow", ""),
+            "network": config.get("network", "tcp"),
+            "security": "tls" if config.get("tls", {}).get("enabled", False) else "none"
+        }
+        
+        # Section TLS si activée
+        if config.get("tls", {}).get("enabled", False):
+            formatted["tls"] = {
+                "enabled": True,
+                "serverName": config["tls"].get("serverName", config["address"]),
+                "alpn": config["tls"].get("alpn", ["h2", "http/1.1"]),
+                "fingerprint": config["tls"].get("fingerprint", "chrome")
+            }
+        
+        # Suppression des champs vides
+        return {k: v for k, v in formatted.items() if v}
+                
     def _finalize_installation(self, use_domain: bool):
         """Gère les étapes finales de l'installation"""
         print(f"\n{Colors.GREEN}=== Configuration Finale ==={Colors.NC}")
