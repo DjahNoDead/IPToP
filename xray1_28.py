@@ -889,9 +889,10 @@ class V2RayInstaller:
         input("\nAppuyez sur Entrée pour continuer...")
 
     def show_client_config(self, use_domain: bool = False):
-        """Génère une configuration client optimisée"""
-        address = self.domain if use_domain else self.get_public_ip()
-        
+        """Génère une configuration client optimisée pour tous les protocoles"""
+        address = self.domain if use_domain and hasattr(self, 'domain') else self.get_public_ip()
+        config = {}
+    
         if self.protocol == "trojan":
             config = {
                 "protocol": "trojan",
@@ -901,21 +902,59 @@ class V2RayInstaller:
                 "network": self.transport,
                 "tls": {
                     "enabled": self.tls_mode == "tls",
-                    "serverName": self.domain if use_domain else address,
+                    "serverName": self.domain if use_domain and hasattr(self, 'domain') else address,
                     "alpn": ["h2", "http/1.1"],
                     "fingerprint": "chrome"
                 }
             }
             if self.transport == "grpc":
                 config["grpc"] = {
-                    "serviceName": self.stream_settings.get("grpcSettings", {}).get("serviceName", "trojan-grpc")
+                    "serviceName": getattr(self, 'grpc_service_name', 'trojan-grpc')
                 }
-        
+            elif self.transport == "ws":
+                config["ws"] = {
+                    "path": getattr(self, 'ws_path', '/trojan-ws')
+                }
+    
+        elif self.protocol == "vless":
+            config = {
+                "protocol": "vless",
+                "address": address,
+                "port": self.port,
+                "id": self.uuid_or_password,
+                "flow": "xtls-rprx-vision" if self.tls_mode == "tls" else "",
+                "network": self.transport,
+                "tls": {
+                    "enabled": self.tls_mode == "tls",
+                    "serverName": self.domain if use_domain and hasattr(self, 'domain') else address,
+                    "alpn": ["h2", "http/1.1"],
+                    "fingerprint": "chrome"
+                }
+            }
+    
+        elif self.protocol == "vmess":
+            config = {
+                "v": "2",
+                "ps": f"V2Ray-{address}",
+                "add": address,
+                "port": str(self.port),
+                "id": self.uuid_or_password,
+                "aid": "0",
+                "net": self.transport,
+                "type": "none",
+                "tls": self.tls_mode if self.tls_mode != "none" else ""
+            }
+    
+        if not config:
+            print(f"{Colors.RED}Protocole non supporté: {self.protocol}{Colors.NC}")
+            return
+    
+        print(f"\n{Colors.GREEN}=== Configuration Client ==={Colors.NC}")
         print(json.dumps(config, indent=2))
         
-        # Génération du lien QR code
+        # Générer le QR Code si possible
         self.generate_qr_code(config)
-            
+        
     def show_full_client_config(self, use_cdn: bool = False) -> None:
         """
         Affiche une configuration client complète avec tous les paramètres nécessaires
