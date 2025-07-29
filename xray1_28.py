@@ -390,93 +390,6 @@ class V2RayInstaller:
         
         return config
     
-    def _get_protocol_settings(self, protocol: str) -> dict:
-        """Retourne les settings spécifiques au protocole"""
-        common = {
-            "clients": [{
-                "id": self.uuid_or_password,
-                "email": f"user@{socket.gethostname()}"
-            }],
-            "disableInsecureEncryption": True
-        }
-        
-        if protocol == "vless":
-            return {
-                **common,
-                "decryption": "none",
-                "clients": [{
-                    **common["clients"][0],
-                    "flow": "xtls-rprx-vision" if self.tls_mode == "tls" else ""
-                }]
-            }
-        elif protocol == "trojan":
-            return {
-                **common,
-                "clients": [{
-                    "password": self.uuid_or_password,
-                    **common["clients"][0]
-                }]
-            }
-        else:  # vmess/shadowsocks
-            return common
-    
-    def _get_stream_settings(self, use_cdn: bool) -> dict:
-        """Configure les paramètres réseau et sécurité"""
-        return {
-            "network": self.transport,
-            "security": self.tls_mode,
-            "tlsSettings": self._get_tls_settings(use_cdn),
-            "wsSettings": self._get_ws_settings(use_cdn),
-            "grpcSettings": self._get_grpc_settings(),
-            "httpSettings": self._get_http_settings()
-        }
-
-    def _get_stream_settings(self, cloudflare=False):
-        """Paramètres avancés de stream"""
-        settings = {
-            "network": self.transport,
-            "security": self.tls_mode,
-            "tlsSettings": {},
-            "wsSettings": {},
-            "httpSettings": {},
-            "grpcSettings": {}
-        }
-        
-        # Configuration TLS avancée
-        if self.tls_mode == "tls":
-            settings["tlsSettings"] = {
-                "serverName": self.domain if cloudflare else "",
-                "alpn": ["h2", "http/1.1"],
-                "certificates": self._get_certificates(cloudflare),
-                "fingerprint": "chrome"  # Fingerprinting anti-détection
-            }
-        
-        # Optimisation WebSocket
-        if self.transport == "ws":
-            settings["wsSettings"] = {
-                "path": f"/{self.protocol}-path",
-                "headers": {
-                    "Host": self.domain if cloudflare else "",
-                    "X-Real-IP": "$remote_addr"
-                }
-            }
-        
-        # Optimisation gRPC
-        elif self.transport == "grpc":
-            settings["grpcSettings"] = {
-                "serviceName": f"{self.protocol}-service",
-                "multiMode": True
-            }
-        
-        # Optimisation HTTP/2
-        elif self.transport == "h2":
-            settings["httpSettings"] = {
-                "host": [self.domain] if cloudflare else [],
-                "path": f"/{self.protocol}-http"
-            }
-        
-        return settings
-    
     def generate_full_config(self, cloudflare=False):
         """Génère une configuration complète avec tous les paramètres CDN"""
         config = {
@@ -523,23 +436,6 @@ class V2RayInstaller:
         config["inbounds"].append(inbound)
         return config
     
-    def _get_certificates(self, cloudflare=False):
-        """Gestion des certificats (local ou Cloudflare)"""
-        if cloudflare:
-            cf = CloudflareManager()
-            if cf.configure_cloudflare():
-                certs = cf.get_ssl_certificates()
-                return [{
-                    "certificateFile": "/etc/v2ray/cloudflare_cert.pem",
-                    "keyFile": "/etc/v2ray/cloudflare_key.pem"
-                }]
-        
-        # Fallback: Certificats auto-générés
-        return [{
-            "certificateFile": "/etc/v2ray/self_signed_cert.pem",
-            "keyFile": "/etc/v2ray/self_signed_key.pem"
-        }]
-
     def get_public_ip(self) -> str:
         """Récupère l'IP publique du serveur avec plusieurs méthodes de fallback"""
         methods = [
@@ -574,51 +470,152 @@ class V2RayInstaller:
         except:
             return False
         
-    def configure_v2ray(self) -> None:
-        """Configuration de V2Ray"""
-        self.log(f"Configuration de V2Ray avec {self.protocol} sur le port {self.port} via {self.transport} (TLS: {self.tls_mode})")
-        
-        self.ensure_v2ray_dir()  # <-- Ajoutez cette ligne
-        
-        if self.protocol == "vmess":
-            self.generate_vmess_config()
-        elif self.protocol == "vless":
-            self.generate_vless_config()
-        elif self.protocol == "trojan":
-            self.generate_trojan_config()
-        elif self.protocol == "shadowsocks":
-            self.generate_shadowsocks_config()
-        else:
-            print(f"{Colors.RED}Erreur critique : Protocole '{self.protocol}' non implémenté.{Colors.NC}")
-            sys.exit(1)
-
-    def configure_cloudflare_integration(self) -> bool:
-        """Gère toute la configuration Cloudflare avec gestion des erreurs"""
+    def configure_v2ray(self, use_cdn=False):  # Ajoutez ce paramètre
+        """Configure V2Ray avec gestion optionnelle du CDN"""
         try:
-            if not hasattr(self, 'cf_manager'):
-                self.cf_manager = CloudflareManager()
-                
-            print(f"\n{Colors.BLUE}=== Configuration Cloudflare ==={Colors.NC}")
+            # Configuration de base
+            config = {
+                "inbounds": [{
+                    "port": self.port,
+                    "protocol": self.protocol.lower(),
+                    "settings": self._get_protocol_settings(),
+                    "streamSettings": self._get_stream_settings(use_cdn)
+                }],
+                "outbounds": [{"protocol": "freedom"}]
+            }
             
-            # Étape 1: Credentials
-            self.cf_manager.email = input("Email du compte Cloudflare: ").strip()
-            self.cf_manager.api_key = input("Clé API Global Cloudflare: ").strip()
-            self.cf_manager.domain = self.domain
-            
-            # Étape 2: Configuration DNS
-            if not self.cf_manager.configure_dns():
-                print(f"{Colors.RED}Échec de la configuration DNS{Colors.NC}")
-                return False
+            if use_cdn and self.domain:
+                config = self._apply_cdn_config(config)
                 
-            # Étape 3: Récupération des certificats
-            if not self.cf_manager.setup_ssl():
-                print(f"{Colors.YELLOW}Avertissement: Échec de la configuration SSL{Colors.NC}")
-                
-            return True
+            self._save_config(config)
+            print_color("✓ Configuration V2Ray appliquée", Colors.GREEN)
             
         except Exception as e:
-            print(f"{Colors.RED}Erreur Cloudflare: {str(e)}{Colors.NC}")
-            return False
+            print_color(f"Erreur de configuration: {str(e)}", Colors.RED)
+            sys.exit(1)
+    
+    def _get_stream_settings(self, use_cdn):
+        """Retourne les paramètres de flux selon la configuration"""
+        settings = {
+            "network": self.transport,
+            "security": self.tls_mode
+        }
+        
+        if self.tls_mode == "tls" and self.domain:
+            settings["tlsSettings"] = {
+                "serverName": self.domain,
+                "certificates": self._get_certificates(use_cdn)
+            }
+        
+        return settings
+    
+    def _get_certificates(self, use_cdn):
+        """Gère les certificats selon le mode CDN"""
+        if use_cdn:
+            return [{
+                "certificateFile": f"/etc/letsencrypt/live/{self.domain}/fullchain.pem",
+                "keyFile": f"/etc/letsencrypt/live/{self.domain}/privkey.pem"
+            }]
+        return []
+    
+    def _generate_inbound(self, use_cdn: bool) -> dict:
+        """Génère la configuration inbound unifiée"""
+        inbound = {
+            "port": self.port,
+            "protocol": self.protocol,
+            "settings": self._get_protocol_settings(),
+            "streamSettings": self._get_stream_settings(use_cdn),
+            "sniffing": {
+                "enabled": True,
+                "destOverride": ["http", "tls"]
+            }
+        }
+    
+        # Ajout des fallbacks pour CDN
+        if use_cdn:
+            inbound["settings"]["fallbacks"] = [
+                {
+                    "dest": 80,
+                    "xver": 1
+                },
+                {
+                    "path": "/cdn-test",
+                    "dest": 80,
+                    "xver": 1
+                }
+            ]
+        
+        return inbound
+    
+    def _get_protocol_settings(self) -> dict:
+        """Retourne les paramètres spécifiques au protocole"""
+        common_settings = {
+            "clients": [self._get_client_config()],
+            "disableInsecureEncryption": True
+        }
+    
+        if self.protocol == "vless":
+            return {
+                **common_settings,
+                "decryption": "none",
+                "clients": [{
+                    **common_settings["clients"][0],
+                    "flow": "xtls-rprx-vision" if self.tls_mode == "tls" else ""
+                }]
+            }
+        elif self.protocol == "trojan":
+            return {
+                **common_settings,
+                "clients": [{
+                    "password": self.uuid_or_password,
+                    **common_settings["clients"][0]
+                }]
+            }
+        else:  # vmess/shadowsocks
+            return common_settings
+    
+    def _get_client_config(self) -> dict:
+        """Configuration de base du client"""
+        return {
+            "id": self.uuid_or_password,
+            "level": 0,
+            "email": f"user@{socket.gethostname()}"
+        }
+    
+    def ensure_ssl_dir(self):
+        """Crée le répertoire SSL si inexistant"""
+        ssl_dir = "/etc/v2ray/ssl"
+        if not os.path.exists(ssl_dir):
+            os.makedirs(ssl_dir, mode=0o755, exist_ok=True)
+            self.log(f"Création du répertoire SSL {ssl_dir}")
+    
+        def configure_cloudflare_integration(self) -> bool:
+            """Gère toute la configuration Cloudflare avec gestion des erreurs"""
+            try:
+                if not hasattr(self, 'cf_manager'):
+                    self.cf_manager = CloudflareManager()
+                    
+                print(f"\n{Colors.BLUE}=== Configuration Cloudflare ==={Colors.NC}")
+                
+                # Étape 1: Credentials
+                self.cf_manager.email = input("Email du compte Cloudflare: ").strip()
+                self.cf_manager.api_key = input("Clé API Global Cloudflare: ").strip()
+                self.cf_manager.domain = self.domain
+                
+                # Étape 2: Configuration DNS
+                if not self.cf_manager.configure_dns():
+                    print(f"{Colors.RED}Échec de la configuration DNS{Colors.NC}")
+                    return False
+                    
+                # Étape 3: Récupération des certificats
+                if not self.cf_manager.setup_ssl():
+                    print(f"{Colors.YELLOW}Avertissement: Échec de la configuration SSL{Colors.NC}")
+                    
+                return True
+                
+            except Exception as e:
+                print(f"{Colors.RED}Erreur Cloudflare: {str(e)}{Colors.NC}")
+                return False
     
     def complete_installation(self) -> None:
         """Installation complète de V2Ray avec support CDN avancé"""
@@ -720,112 +717,86 @@ class V2RayInstaller:
                     else:
                         print(f"{Colors.RED}Annulation de l'installation{Colors.NC}")
                         return
+                        
+            def show_installation_summary(self, use_domain: bool, use_cdn: bool):
+                """Affiche un récapitulatif complet de l'installation"""
+                address = self.domain if use_domain else self.get_public_ip()
+                
+                print(f"\n{Colors.GREEN}=== Installation Réussie ==={Colors.NC}")
+                print(f"Fichier de configuration: {Colors.YELLOW}{CONFIG_FILE}{Colors.NC}")
+                
+                # Configuration client optimisée
+                print(f"\n{Colors.BLUE}=== Configuration Client ==={Colors.NC}")
+                
+                if self.protocol == "vless":
+                    client_config = f"vless://{self.uuid_or_password}@{address}:{self.port}?" \
+                                   f"type={self.transport}&security={self.tls_mode}" \
+                                   f"&sni={self.domain if use_domain else ''}" \
+                                   f"&fp=chrome&alpn=h2,http/1.1" \
+                                   f"&path=%2F{self.protocol}-cdn-path" \
+                                   f"#{self.protocol}-cdn"
+                
+                elif self.protocol == "vmess":
+                    vmess_config = {
+                        "v": "2",
+                        "ps": f"V2Ray-{address}",
+                        "add": address,
+                        "port": str(self.port),
+                        "id": self.uuid_or_password,
+                        "aid": "0",
+                        "net": self.transport,
+                        "type": "none",
+                        "host": self.domain if use_domain else "",
+                        "path": f"/{self.protocol}-cdn-path",
+                        "tls": self.tls_mode if self.tls_mode != "none" else "",
+                        "sni": self.domain if use_domain else "",
+                        "alpn": "h2,http/1.1",
+                        "fp": "chrome"
+                    }
+                    client_config = f"vmess://{base64.b64encode(json.dumps(vmess_config).encode()).decode()}"
+                
+                elif self.protocol == "trojan":
+                    client_config = f"trojan://{self.uuid_or_password}@{address}:{self.port}?" \
+                                  f"security={self.tls_mode}&type={self.transport}" \
+                                  f"&sni={self.domain if use_domain else ''}" \
+                                  f"&alpn=h2,http/1.1" \
+                                  f"&path=%2F{self.protocol}-cdn-path" \
+                                  f"#{self.protocol}-cdn"
+                
+                print(client_config)
+                
+                # QR Code pour mobile
+                try:
+                    import qrcode
+                    qr = qrcode.QRCode()
+                    qr.add_data(client_config)
+                    qr.print_ascii()
+                except:
+                    print(f"{Colors.YELLOW}Installez le module 'qrcode' pour afficher un QR Code{Colors.NC}")
+                
+                # Paramètres avancés
+                print(f"\n{Colors.BLUE}=== Paramètres Avancés ==={Colors.NC}")
+                print(f"• Adresse: {Colors.YELLOW}{address}{Colors.NC}")
+                print(f"• Port: {Colors.YELLOW}{self.port}{Colors.NC}")
+                print(f"• ID: {Colors.YELLOW}{self.uuid_or_password}{Colors.NC}")
+                print(f"• Transport: {Colors.YELLOW}{self.transport.upper()}{Colors.NC}")
+                print(f"• Chemin: {Colors.YELLOW}/{self.protocol}-cdn-path{Colors.NC}")
+                print(f"• SNI: {Colors.YELLOW}{self.domain if use_domain else 'auto'}{Colors.NC}")
+                print(f"• Fingerprint: {Colors.YELLOW}chrome{Colors.NC}")
+                print(f"• ALPN: {Colors.YELLOW}h2,http/1.1{Colors.NC}")
+                
+                # Instructions CDN
+                if use_cdn:
+                    print(f"\n{Colors.GREEN}=== Configuration Cloudflare ==={Colors.NC}")
+                    print("1. Dans l'interface Cloudflare:")
+                    print("   • SSL/TLS: Full (strict)")
+                    print("   • Network: WebSockets activé")
+                    print("   • Rules: Cache Level = Bypass")
+                    print("2. Vérifiez que le proxy est activé (icône orange)")
+                    print("3. Recommandé: Activer TLS 1.3 et HTTP/3")
+                
+                input("\nAppuyez sur Entrée pour continuer...")
         
-        # Récapitulatif final
-        print(f"\n{Colors.GREEN}=== Configuration Finale ==={Colors.NC}")
-        print(f"• Protocole: {Colors.YELLOW}{self.protocol.upper()}{Colors.NC}")
-        public_ip = self.get_public_ip() if hasattr(self, 'get_public_ip') else "VOTRE_IP_PUBLIQUE"
-        print(f"• Adresse: {Colors.YELLOW}{self.domain if use_domain else public_ip}{Colors.NC}")
-        print(f"• Port: {Colors.YELLOW}{self.port}{Colors.NC}")
-        print(f"• ID/Mot de passe: {Colors.YELLOW}{self.uuid_or_password}{Colors.NC}")
-        print(f"• Transport: {Colors.YELLOW}{self.transport.upper()}{Colors.NC}")
-        print(f"• Sécurité: {Colors.YELLOW}{self.tls_mode.upper()}{Colors.NC}")
-        if use_cdn:
-            print(f"• CDN: {Colors.YELLOW}Cloudflare (Proxy activé){Colors.NC}")
-        
-        confirm = input("\nConfirmer l'installation (o/N)? ").lower()
-        if confirm != 'o':
-            print(f"{Colors.RED}Installation annulée.{Colors.NC}")
-            sys.exit(1)
-        
-        # Installation
-        print(f"\n{Colors.YELLOW}Installation en cours...{Colors.NC}")
-        self.install_dependencies()
-        self.install_v2ray()
-        self.configure_v2ray(use_cdn=use_cdn)
-        
-        # Affichage des résultats
-        self.show_installation_summary(use_domain, use_cdn)
-    
-    def show_installation_summary(self, use_domain: bool, use_cdn: bool):
-        """Affiche un récapitulatif complet de l'installation"""
-        address = self.domain if use_domain else self.get_public_ip()
-        
-        print(f"\n{Colors.GREEN}=== Installation Réussie ==={Colors.NC}")
-        print(f"Fichier de configuration: {Colors.YELLOW}{CONFIG_FILE}{Colors.NC}")
-        
-        # Configuration client optimisée
-        print(f"\n{Colors.BLUE}=== Configuration Client ==={Colors.NC}")
-        
-        if self.protocol == "vless":
-            client_config = f"vless://{self.uuid_or_password}@{address}:{self.port}?" \
-                           f"type={self.transport}&security={self.tls_mode}" \
-                           f"&sni={self.domain if use_domain else ''}" \
-                           f"&fp=chrome&alpn=h2,http/1.1" \
-                           f"&path=%2F{self.protocol}-cdn-path" \
-                           f"#{self.protocol}-cdn"
-        
-        elif self.protocol == "vmess":
-            vmess_config = {
-                "v": "2",
-                "ps": f"V2Ray-{address}",
-                "add": address,
-                "port": str(self.port),
-                "id": self.uuid_or_password,
-                "aid": "0",
-                "net": self.transport,
-                "type": "none",
-                "host": self.domain if use_domain else "",
-                "path": f"/{self.protocol}-cdn-path",
-                "tls": self.tls_mode if self.tls_mode != "none" else "",
-                "sni": self.domain if use_domain else "",
-                "alpn": "h2,http/1.1",
-                "fp": "chrome"
-            }
-            client_config = f"vmess://{base64.b64encode(json.dumps(vmess_config).encode()).decode()}"
-        
-        elif self.protocol == "trojan":
-            client_config = f"trojan://{self.uuid_or_password}@{address}:{self.port}?" \
-                          f"security={self.tls_mode}&type={self.transport}" \
-                          f"&sni={self.domain if use_domain else ''}" \
-                          f"&alpn=h2,http/1.1" \
-                          f"&path=%2F{self.protocol}-cdn-path" \
-                          f"#{self.protocol}-cdn"
-        
-        print(client_config)
-        
-        # QR Code pour mobile
-        try:
-            import qrcode
-            qr = qrcode.QRCode()
-            qr.add_data(client_config)
-            qr.print_ascii()
-        except:
-            print(f"{Colors.YELLOW}Installez le module 'qrcode' pour afficher un QR Code{Colors.NC}")
-        
-        # Paramètres avancés
-        print(f"\n{Colors.BLUE}=== Paramètres Avancés ==={Colors.NC}")
-        print(f"• Adresse: {Colors.YELLOW}{address}{Colors.NC}")
-        print(f"• Port: {Colors.YELLOW}{self.port}{Colors.NC}")
-        print(f"• ID: {Colors.YELLOW}{self.uuid_or_password}{Colors.NC}")
-        print(f"• Transport: {Colors.YELLOW}{self.transport.upper()}{Colors.NC}")
-        print(f"• Chemin: {Colors.YELLOW}/{self.protocol}-cdn-path{Colors.NC}")
-        print(f"• SNI: {Colors.YELLOW}{self.domain if use_domain else 'auto'}{Colors.NC}")
-        print(f"• Fingerprint: {Colors.YELLOW}chrome{Colors.NC}")
-        print(f"• ALPN: {Colors.YELLOW}h2,http/1.1{Colors.NC}")
-        
-        # Instructions CDN
-        if use_cdn:
-            print(f"\n{Colors.GREEN}=== Configuration Cloudflare ==={Colors.NC}")
-            print("1. Dans l'interface Cloudflare:")
-            print("   • SSL/TLS: Full (strict)")
-            print("   • Network: WebSockets activé")
-            print("   • Rules: Cache Level = Bypass")
-            print("2. Vérifiez que le proxy est activé (icône orange)")
-            print("3. Recommandé: Activer TLS 1.3 et HTTP/3")
-        
-        input("\nAppuyez sur Entrée pour continuer...")
-
     def show_full_client_config(self, use_cdn: bool = False) -> None:
         """
         Affiche une configuration client complète avec tous les paramètres nécessaires
