@@ -857,7 +857,67 @@ class V2RayInstaller:
             print("3. Recommandé: Activer TLS 1.3 et HTTP/3")
         
         input("\nAppuyez sur Entrée pour continuer...")
+
+    def show_client_config(self, use_domain: bool = False) -> None:
+        """Affiche la configuration client avec QR Code"""
+        address = self.domain if use_domain else self.get_public_ip()
         
+        print(f"\n{Colors.GREEN}=== CONFIGURATION CLIENT ==={Colors.NC}")
+        
+        if self.protocol == "vless":
+            config = f"vless://{self.uuid_or_password}@{address}:{self.port}?" \
+                    f"security={self.tls_mode}&type={self.transport}" \
+                    f"&path=%2F{self.protocol}-path" \
+                    f"&host={self.domain}" \
+                    f"&fp=chrome#V2Ray-{self.protocol}"
+        
+        elif self.protocol == "vmess":
+            vmess_config = {
+                "v": "2",
+                "ps": f"V2Ray-{address}",
+                "add": address,
+                "port": str(self.port),
+                "id": self.uuid_or_password,
+                "aid": "0",
+                "net": self.transport,
+                "type": "none",
+                "host": self.domain,
+                "path": f"/{self.protocol}-path",
+                "tls": self.tls_mode,
+                "sni": self.domain,
+                "alpn": "h2,http/1.1",
+                "fp": "chrome"
+            }
+            config = f"vmess://{base64.b64encode(json.dumps(vmess_config).encode()).decode()}"
+        
+        elif self.protocol == "trojan":
+            config = f"trojan://{self.uuid_or_password}@{address}:{self.port}?" \
+                    f"security={self.tls_mode}&type={self.transport}" \
+                    f"&path=%2F{self.protocol}-path" \
+                    f"&sni={self.domain}#Trojan-{self.transport}"
+        
+        print(f"\n{Colors.YELLOW}Lien de configuration:{Colors.NC}")
+        print(config)
+        
+        # Génération du QR Code si possible
+        try:
+            import qrcode
+            qr = qrcode.QRCode()
+            qr.add_data(config)
+            qr.print_ascii()
+        except ImportError:
+            print(f"{Colors.YELLOW}Installez 'qrcode' pour afficher un QR Code: pip install qrcode{Colors.NC}")
+        
+        print(f"\n{Colors.GREEN}Paramètres manuels:{Colors.NC}")
+        print(f"Adresse: {address}")
+        print(f"Port: {self.port}")
+        print(f"ID/Mot de passe: {self.uuid_or_password}")
+        print(f"Protocole: {self.protocol}")
+        print(f"Transport: {self.transport}")
+        print(f"Chemin: /{self.protocol}-path")
+        print(f"TLS: {self.tls_mode}")
+        print(f"SNI: {self.domain}")
+            
     def show_full_client_config(self, use_cdn: bool = False) -> None:
         """
         Affiche une configuration client complète avec tous les paramètres nécessaires
