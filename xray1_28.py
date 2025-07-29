@@ -19,6 +19,8 @@ class Colors:
     YELLOW = '\033[0;33m'
     BLUE = '\033[0;34m'
     NC = '\033[0m'  # No Color
+    class Colors:
+    CYAN = '\033[0;36m'  # Ajoutez cette ligne
 
 # Variables globales
 CONFIG_FILE = "/etc/v2ray/config.json"
@@ -694,7 +696,19 @@ class V2RayInstaller:
             except Exception as e:
                 print(f"{Colors.RED}Erreur Cloudflare: {str(e)}{Colors.NC}")
                 return False
-    
+
+    def _confirm_installation(self) -> bool:
+        """Demande confirmation avant l'installation"""
+        print(f"\n{Colors.YELLOW}=== Récapitulatif avant installation ==={Colors.NC}")
+        print(f"Protocole: {Colors.CYAN}{self.protocol.upper()}{Colors.NC}")
+        print(f"Adresse: {Colors.CYAN}{getattr(self, 'domain', self.get_public_ip())}{Colors.NC}")
+        print(f"Port: {Colors.CYAN}{self.port}{Colors.NC}")
+        print(f"Transport: {Colors.CYAN}{self.transport.upper()}{Colors.NC}")
+        print(f"Sécurité: {Colors.CYAN}{self.tls_mode.upper()}{Colors.NC}")
+        
+        confirm = input("\nConfirmer l'installation (o/N)? ").strip().lower()
+        return confirm == 'o'
+        
     def complete_installation(self) -> None:
         """Installation complète avec gestion robuste des cas TLS"""
         print(f"{Colors.GREEN}=== Installation de V2Ray Premium ==={Colors.NC}")
@@ -764,8 +778,10 @@ class V2RayInstaller:
         print(f"• Transport: {Colors.YELLOW}{self.transport.upper()}{Colors.NC}")
         print(f"• Sécurité: {Colors.YELLOW}{self.tls_mode.upper()}{Colors.NC}")
     
-        if not self._confirm_installation():
-            return
+        # Appel à la méthode de confirmation
+        if not hasattr(self, '_confirm_installation') or not self._confirm_installation():
+            print(f"{Colors.RED}Installation annulée.{Colors.NC}")
+            return False
     
         # Installation
         print(f"\n{Colors.YELLOW}Installation en cours...{Colors.NC}")
@@ -773,7 +789,6 @@ class V2RayInstaller:
             self.install_dependencies()
             self.install_v2ray()
             
-            # Gestion spéciale TLS
             if self.tls_mode == "tls":
                 if use_domain:
                     self.configure_tls(self.domain)
@@ -783,11 +798,12 @@ class V2RayInstaller:
             
             self.configure_v2ray(use_cdn=False)
             self.show_client_config(use_domain)
+            return True
             
         except Exception as e:
             print(f"\n{Colors.RED}Erreur lors de l'installation: {str(e)}{Colors.NC}")
-            sys.exit(1)
-
+            return False
+    
     def show_installation_summary(self, use_domain: bool, use_cdn: bool):
         """Affiche un récapitulatif complet de l'installation"""
         address = self.domain if use_domain else self.get_public_ip()
