@@ -1388,6 +1388,8 @@ class V2RayInstaller:
         print("4. Dans Network:")
         print("   - WebSockets: Activé")
 
+# New implémenter
+
     def update_v2ray(self):
         """Mise à jour de V2Ray/Xray"""
         print("\nDébut de la mise à jour...")
@@ -1472,70 +1474,7 @@ class V2RayInstaller:
         """Vérifie le statut du service"""
         os.system("systemctl status xray")
         input("\nAppuyez sur Entrée pour continuer...")            
-    
-    def main_menu(self):
-        menu_options = {
-            '1': ('Installation complète', self.full_installation),
-            '2': ('Mise à jour de V2Ray', self.update_v2ray),
-            '3': ('Désinstaller V2Ray', self.uninstall),
-            '4': ('Gérer les configurations', self.manage_configs),
-            '5': ('Voir le statut du service', self.check_status),
-            '6': ('Quitter', exit)
-        }
-    
-        while True:
-            print("\n" + "="*50)
-            print("Menu Principal".center(50))
-            print("="*50)
-            
-            for key, (text, _) in menu_options.items():
-                print(f"{key}. {text}")
-            
-            choice = input("Choisissez une option [1-6]: ").strip()
-            
-            if choice in menu_options:
-                try:
-                    menu_options[choice][1]()
-                except Exception as e:
-                    print(f"Erreur: {str(e)}")
-                    input("Appuyez sur Entrée pour continuer...")
-            else:
-                print("Option invalide, veuillez réessayer.")
 
-
-    def main_menu(self):
-        menu_options = {
-            '1': ('Installation complète', self._finalize_installation),
-            '2': ('Mise à jour de V2Ray', self.update_v2ray),
-            '3': ('Désinstaller V2Ray', self.uninstall),
-            '4': ('Gérer les configurations', self.manage_configs),
-            '5': ('Voir le statut du service', self.check_status),
-            '6': ('Quitter', self.quit_installer)
-        }
-    
-        while True:
-            try:
-                print("\n" + "="*50)
-                print(" MENU PRINCIPAL ".center(50, '='))
-                print("="*50)
-                
-                for key, (text, _) in sorted(menu_options.items()):
-                    print(f" {key}. {text}")
-                
-                choice = input("\nVotre choix [1-6]: ").strip()
-                
-                if choice in menu_options:
-                    menu_options[choice][1]()
-                else:
-                    print("\n⚠️ Option invalide! Veuillez choisir entre 1 et 6.")
-                    
-            except KeyboardInterrupt:
-                self.quit_installer()
-            except Exception as e:
-                print(f"\n❌ Erreur: {str(e)}")
-                traceback.print_exc()
-                input("\n⚠️ Appuyez sur Entrée pour continuer...")
-    
     def quit_installer(self):
         """Quitte proprement l'installateur"""
         print("\nFermeture de l'installateur...")
@@ -1603,6 +1542,36 @@ class V2RayInstaller:
             print(f"{Colors.GREEN}Configuration modifiée avec succès{Colors.NC}")
         except subprocess.CalledProcessError as e:
             print(f"{Colors.RED}Échec de la modification de la configuration: {e}{Colors.NC}")
+            
+   
+def main_menu(self):
+    while True:
+        print("\n" + "="*50)
+        print("Menu Principal".center(50))
+        print("="*50)
+        print("1. Installation complète")
+        print("2. Mise à jour de V2Ray")
+        print("3. Désinstaller V2Ray")
+        print("4. Gérer les configurations")
+        print("5. Voir le statut du service")
+        print("6. Quitter")
+        
+        choice = input("Choisissez une option [1-6]: ").strip()
+        
+        if choice == '1':
+            self.full_installation()
+        elif choice == '2':
+            self.update_v2ray()  # Cette méthode doit exister
+        elif choice == '3':
+            self.uninstall()
+        elif choice == '4':
+            self.manage_configs()
+        elif choice == '5':
+            self.check_status()
+        elif choice == '6':
+            exit(0)
+        else:
+            print("Option invalide, veuillez réessayer.")
 
     def main(self) -> None:
         """Point d'entrée principal"""
