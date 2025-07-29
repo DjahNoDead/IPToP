@@ -1427,36 +1427,82 @@ class V2RayInstaller:
         except Exception as e:
             print(f"Échec de la mise à jour: {str(e)}")
         input("Appuyez sur Entrée pour continuer...")
+
+    def apply_config(self, config):
+        """Écrit la configuration dans le fichier config.json"""
+        config_path = "/usr/local/etc/xray/config.json"
+        with open(config_path, 'w') as f:
+            json.dump(config, f, indent=2)
     
+    def start_service(self):
+        """Démarre le service Xray"""
+        os.system("systemctl enable --now xray")
+    
+    def rollback_installation(self):
+        """Annule l'installation en cas d'échec"""
+        print("\nAnnulation de l'installation...")
+        os.system("rm -rf /usr/local/etc/xray")
+        os.system("systemctl stop xray 2>/dev/null")
+    
+    def full_installation(self):
+        """Effectue l'installation complète de V2Ray/Xray"""
+        try:
+            print("\n=== Installation Complète ===")
+            
+            # 1. Installation des dépendances
+            self.install_dependencies()
+            
+            # 2. Installation de Xray/V2Ray
+            self.install_v2ray()
+            
+            # 3. Génération de la configuration
+            config = self.generate_config()
+            
+            # 4. Application de la configuration
+            self.apply_config(config)
+            
+            # 5. Démarrage du service
+            self.start_service()
+            
+            # 6. Affichage des informations de connexion
+            print("\nInstallation terminée avec succès!")
+            print(f"URL de configuration : {self.generate_v2ray_url(config)}")
+            
+        except Exception as e:
+            print(f"\nErreur lors de l'installation: {str(e)}")
+            self.rollback_installation()
+        finally:
+            input("\nAppuyez sur Entrée pour retourner au menu...")
+        
     def main_menu(self):
+        menu_options = {
+            '1': ('Installation complète', self.full_installation),
+            '2': ('Mise à jour de V2Ray', self.update_v2ray),
+            '3': ('Désinstaller V2Ray', self.uninstall),
+            '4': ('Gérer les configurations', self.manage_configs),
+            '5': ('Voir le statut du service', self.check_status),
+            '6': ('Quitter', exit)
+        }
+    
         while True:
             print("\n" + "="*50)
             print("Menu Principal".center(50))
             print("="*50)
-            print("1. Installation complète")
-            print("2. Mise à jour de V2Ray")
-            print("3. Désinstaller V2Ray")
-            print("4. Gérer les configurations")
-            print("5. Voir le statut du service")
-            print("6. Quitter")
+            
+            for key, (text, _) in menu_options.items():
+                print(f"{key}. {text}")
             
             choice = input("Choisissez une option [1-6]: ").strip()
             
-            if choice == '1':
-                self.full_installation()
-            elif choice == '2':
-                self.update_v2ray()  # Cette méthode doit exister
-            elif choice == '3':
-                self.uninstall()
-            elif choice == '4':
-                self.manage_configs()
-            elif choice == '5':
-                self.check_status()
-            elif choice == '6':
-                exit(0)
+            if choice in menu_options:
+                try:
+                    menu_options[choice][1]()
+                except Exception as e:
+                    print(f"Erreur: {str(e)}")
+                    input("Appuyez sur Entrée pour continuer...")
             else:
                 print("Option invalide, veuillez réessayer.")
-          
+                  
     def show_config(self) -> None:
         """Afficher la configuration actuelle"""
         try:
