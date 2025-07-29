@@ -769,7 +769,7 @@ class V2RayInstaller:
         except Exception as e:
             print(f"\n{Colors.RED}Erreur lors de l'installation: {str(e)}{Colors.NC}")
             return False
-    
+        
     def show_installation_summary(self, use_domain: bool, use_cdn: bool):
         """Affiche un récapitulatif complet de l'installation"""
         address = self.domain if use_domain else self.get_public_ip()
