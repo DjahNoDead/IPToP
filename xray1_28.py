@@ -19,7 +19,6 @@ class Colors:
     YELLOW = '\033[0;33m'
     BLUE = '\033[0;34m'
     NC = '\033[0m'  # No Color
-    class Colors:
     CYAN = '\033[0;36m'  # Ajoutez cette ligne
 
 # Variables globales
@@ -370,40 +369,7 @@ class V2RayInstaller:
             self.log(f"Erreur d'installation de V2Ray: {e}")
             sys.exit(1)
 
-    # À la place des 4 anciennes fonctions, gardez juste :
-    def generate_full_config(self, protocol: str = None, use_cdn: bool = False) -> dict:
-        """Génère une configuration unifiée pour tous les protocoles"""
-        protocol = protocol or self.protocol
-        config = {
-            "inbounds": [{
-                "port": self.port,
-                "protocol": protocol,
-                "settings": self._get_protocol_settings(protocol),
-                "streamSettings": self._get_stream_settings(use_cdn),
-                "sniffing": {
-                    "enabled": True,
-                    "destOverride": ["http", "tls"]
-                }
-            }],
-            "outbounds": [
-                {
-                    "protocol": "freedom",
-                    "tag": "direct"
-                }
-            ]
-        }
-        
-        # Ajout des fallbacks pour CDN
-        if use_cdn:
-            config["inbounds"][0]["settings"]["fallbacks"] = [
-                {
-                    "dest": 80,  # Port de fallback
-                    "xver": 1
-                }
-            ]
-        
-        return config
-    
+    # À la place des 4 anciennes fonctions, gardez juste :   
     def generate_full_config(self, cloudflare=False):
         """Génère une configuration complète avec tous les paramètres CDN"""
         config = {
