@@ -734,7 +734,7 @@ class V2RayInstaller:
         
         # 7. Finalisation
         self._finalize_installation(use_domain)
-    
+
     def _finalize_installation(self, use_domain: bool):
         """Gère les étapes finales de l'installation"""
         print(f"\n{Colors.GREEN}=== Configuration Finale ==={Colors.NC}")
@@ -763,12 +763,18 @@ class V2RayInstaller:
                     self.generate_self_signed_cert()
             
             self.configure_v2ray(use_cdn=False)
-            self.show_client_config(use_domain)
-            return True
             
-        except Exception as e:
-            print(f"\n{Colors.RED}Erreur lors de l'installation: {str(e)}{Colors.NC}")
-            return False
+            # Corriger l'appel à show_client_config
+            if hasattr(self, 'show_client_config'):
+                if len(inspect.signature(self.show_client_config).parameters) == 1:
+                    self.show_client_config()
+                else:
+                    # Pour la compatibilité avec les anciennes versions
+                    self.show_client_config(use_domain)
+            else:
+                print(f"{Colors.YELLOW}Avertissement: Méthode show_client_config non trouvée{Colors.NC}")
+            
+            return True
         
     def show_installation_summary(self, use_domain: bool, use_cdn: bool):
         """Affiche un récapitulatif complet de l'installation"""
@@ -1014,12 +1020,20 @@ class V2RayInstaller:
         print(f"{Colors.GREEN}=== Statut du service V2Ray ==={Colors.NC}")
         subprocess.run(['systemctl', 'status', 'v2ray', '--no-pager'])
 
-    def show_client_config(self):
-        """Affiche la configuration client optimisée"""
+     def show_client_config(self, use_domain: bool = None):
+        """
+        Affiche la configuration client
+        Args:
+            use_domain: Optionnel, indique si un domaine est utilisé
+        """
         public_ip = self.get_public_ip()
+        if use_domain is None:
+            use_domain = hasattr(self, 'domain') and bool(self.domain)
         
-        print(f"\n{Colors.BLUE}=== Configuration Client ({self.protocol.upper()}) ==={Colors.NC}")
+        address = self.domain if use_domain else self.get_public_ip()
         
+        print(f"\n{Colors.GREEN}=== Configuration Client ==={Colors.NC}")
+
         if self.protocol == "vless":
             print(f"vless://{self.uuid_or_password}@{public_ip}:{self.port}?type={self.transport}&security={self.tls_mode}&flow=xtls-rprx-direct#{self.protocol}-{self.transport}")
         elif self.protocol == "vmess":
