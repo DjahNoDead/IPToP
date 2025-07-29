@@ -1020,54 +1020,95 @@ class V2RayInstaller:
         print(f"{Colors.GREEN}=== Statut du service V2Ray ==={Colors.NC}")
         subprocess.run(['systemctl', 'status', 'v2ray', '--no-pager'])
 
-     def show_client_config(self, use_domain: bool = None):
+    def show_client_config(self, use_domain: bool = None):
         """
-        Affiche la configuration client
+        Affiche la configuration client optimisée pour l'importation
         Args:
-            use_domain: Optionnel, indique si un domaine est utilisé
+            use_domain: Booléen optionnel indiquant si un domaine est utilisé
+                       Si None, détection automatique
         """
-        public_ip = self.get_public_ip()
-        if use_domain is None:
-            use_domain = hasattr(self, 'domain') and bool(self.domain)
-        
+        # 1. Détermination de l'adresse de connexion
+        use_domain = use_domain if use_domain is not None else (hasattr(self, 'domain') and bool(self.domain))
         address = self.domain if use_domain else self.get_public_ip()
         
-        print(f"\n{Colors.GREEN}=== Configuration Client ==={Colors.NC}")
-
+        # 2. En-tête de configuration
+        print(f"\n{Colors.GREEN}=== CONFIGURATION CLIENT ({self.protocol.upper()}) ==={Colors.NC}")
+        print(f"{Colors.YELLOW}● Lien d'importation:{Colors.NC}")
+    
+        # 3. Génération des liens selon le protocole
         if self.protocol == "vless":
-            print(f"vless://{self.uuid_or_password}@{public_ip}:{self.port}?type={self.transport}&security={self.tls_mode}&flow=xtls-rprx-direct#{self.protocol}-{self.transport}")
+            client_link = f"vless://{self.uuid_or_password}@{address}:{self.port}?" \
+                         f"type={self.transport}&security={self.tls_mode}" \
+                         f"&sni={self.domain if use_domain else ''}" \
+                         f"&fp=chrome&alpn=h2,http/1.1" \
+                         f"&path=%2F{self.protocol}-path" \
+                         f"&flow=xtls-rprx-vision" \
+                         f"#VLESS-{self.transport.upper()}"
+        
         elif self.protocol == "vmess":
             vmess_config = {
                 "v": "2",
-                "ps": f"V2Ray-{socket.gethostname()}",
-                "add": public_ip,
+                "ps": f"V2Ray-{address}",
+                "add": address,
                 "port": str(self.port),
                 "id": self.uuid_or_password,
                 "aid": "0",
                 "net": self.transport,
                 "type": "none",
-                "host": "",
-                "path": "/vmess",
-                "tls": "tls" if self.tls_mode == "tls" else ""
+                "host": self.domain if use_domain else "",
+                "path": f"/{self.protocol}-path",
+                "tls": "tls" if self.tls_mode == "tls" else "",
+                "sni": self.domain if use_domain else "",
+                "alpn": "h2,http/1.1",
+                "fp": "chrome"
             }
-            print(f"vmess://{base64.b64encode(json.dumps(vmess_config).encode()).decode()}")
+            client_link = f"vmess://{base64.b64encode(json.dumps(vmess_config).encode()).decode()}"
+        
         elif self.protocol == "trojan":
-            print(f"trojan://{self.uuid_or_password}@{public_ip}:{self.port}?security={self.tls_mode}&type={self.transport}&path=/trojan#{self.protocol}-{self.transport}")
+            client_link = f"trojan://{self.uuid_or_password}@{address}:{self.port}?" \
+                         f"security={self.tls_mode}&type={self.transport}" \
+                         f"&sni={self.domain if use_domain else ''}" \
+                         f"&alpn=h2,http/1.1" \
+                         f"&path=%2F{self.protocol}-path" \
+                         f"#Trojan-{self.transport.upper()}"
+        
         elif self.protocol == "shadowsocks":
-            print(f"ss://{base64.b64encode(f'chacha20-ietf-poly1305:{self.uuid_or_password}'.encode()).decode()}@{public_ip}:{self.port}#{self.protocol}-{self.transport}")
+            method = "chacha20-ietf-poly1305"  # Méthode recommandée
+            client_link = f"ss://{base64.b64encode(f'{method}:{self.uuid_or_password}'.encode()).decode()}@{address}:{self.port}#SS-{self.transport.upper()}"
         
-        print(f"\n{Colors.YELLOW}Paramètres avancés:{Colors.NC}")
-        print(f"Protocole: {self.protocol.upper()}")
-        print(f"Adresse: {public_ip} (ou votre domaine)")
-        print(f"Port: {self.port}")
-        print(f"ID/Mot de passe: {self.uuid_or_password}")
-        print(f"Transport: {self.transport}")
-        print(f"Sécurité: {self.tls_mode}")
+        print(client_link)
+    
+        # 4. QR Code pour mobile
+        try:
+            import qrcode
+            print(f"\n{Colors.GREEN}● QR Code pour clients mobiles:{Colors.NC}")
+            qr = qrcode.QRCode()
+            qr.add_data(client_link)
+            qr.print_ascii()
+        except ImportError:
+            print(f"{Colors.YELLOW}Installez 'qrcode' pour afficher un QR Code: pip install qrcode{Colors.NC}")
+    
+        # 5. Paramètres détaillés
+        print(f"\n{Colors.BLUE}● Paramètres avancés:{Colors.NC}")
+        print(f"Adresse: {Colors.CYAN}{address}{Colors.NC}")
+        print(f"Port: {Colors.CYAN}{self.port}{Colors.NC}")
+        print(f"ID/Mot de passe: {Colors.CYAN}{self.uuid_or_password}{Colors.NC}")
+        print(f"Protocole: {Colors.CYAN}{self.protocol.upper()}{Colors.NC}")
+        print(f"Transport: {Colors.CYAN}{self.transport.upper()}{Colors.NC}")
+        print(f"Sécurité: {Colors.CYAN}{self.tls_mode.upper()}{Colors.NC}")
         
-        if self.protocol in ["vless", "trojan"]:
-            print("Path: /" + self.protocol)
-        
-        self.show_cdn_instructions()
+        if self.transport in ["ws", "h2"]:
+            print(f"Chemin: {Colors.CYAN}/{self.protocol}-path{Colors.NC}")
+        if self.tls_mode == "tls":
+            print(f"SNI: {Colors.CYAN}{self.domain if use_domain else 'auto'}{Colors.NC}")
+            print(f"Fingerprint: {Colors.CYAN}chrome{Colors.NC}")
+            print(f"ALPN: {Colors.CYAN}h2,http/1.1{Colors.NC}")
+    
+        # 6. Instructions supplémentaires
+        if use_domain:
+            print(f"\n{Colors.GREEN}● Instructions pour domaine:{Colors.NC}")
+            print(f"- Vérifiez que le DNS pointe bien vers: {self.get_public_ip()}")
+            print(f"- Configurez le reverse proxy si nécessaire")
     
     def show_cdn_instructions(self):
         """Affiche les instructions CDN communes"""
