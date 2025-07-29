@@ -1020,30 +1020,23 @@ class V2RayInstaller:
         print(f"{Colors.GREEN}=== Statut du service V2Ray ==={Colors.NC}")
         subprocess.run(['systemctl', 'status', 'v2ray', '--no-pager'])
 
-    def show_client_config(self, use_domain: bool = None):
-        """
-        Affiche la configuration client optimisée pour l'importation
-        Args:
-            use_domain: Booléen optionnel indiquant si un domaine est utilisé
-                       Si None, détection automatique
-        """
-        # 1. Détermination de l'adresse de connexion
-        use_domain = use_domain if use_domain is not None else (hasattr(self, 'domain') and bool(self.domain))
+    def show_installation_summary(self, use_domain: bool, use_cdn: bool):
+        """Affiche un récapitulatif complet de l'installation"""
         address = self.domain if use_domain else self.get_public_ip()
         
-        # 2. En-tête de configuration
-        print(f"\n{Colors.GREEN}=== CONFIGURATION CLIENT ({self.protocol.upper()}) ==={Colors.NC}")
-        print(f"{Colors.YELLOW}● Lien d'importation:{Colors.NC}")
-    
-        # 3. Génération des liens selon le protocole
+        print(f"\n{Colors.GREEN}=== Installation Réussie ==={Colors.NC}")
+        print(f"Fichier de configuration: {Colors.YELLOW}{CONFIG_FILE}{Colors.NC}")
+        
+        # Configuration client optimisée
+        print(f"\n{Colors.BLUE}=== Configuration Client ==={Colors.NC}")
+        
         if self.protocol == "vless":
-            client_link = f"vless://{self.uuid_or_password}@{address}:{self.port}?" \
-                         f"type={self.transport}&security={self.tls_mode}" \
-                         f"&sni={self.domain if use_domain else ''}" \
-                         f"&fp=chrome&alpn=h2,http/1.1" \
-                         f"&path=%2F{self.protocol}-path" \
-                         f"&flow=xtls-rprx-vision" \
-                         f"#VLESS-{self.transport.upper()}"
+            client_config = f"vless://{self.uuid_or_password}@{address}:{self.port}?" \
+                           f"type={self.transport}&security={self.tls_mode}" \
+                           f"&sni={self.domain if use_domain else ''}" \
+                           f"&fp=chrome&alpn=h2,http/1.1" \
+                           f"&path=%2F{self.protocol}-path" \
+                           f"#{self.protocol}-{self.transport}"
         
         elif self.protocol == "vmess":
             vmess_config = {
@@ -1057,59 +1050,55 @@ class V2RayInstaller:
                 "type": "none",
                 "host": self.domain if use_domain else "",
                 "path": f"/{self.protocol}-path",
-                "tls": "tls" if self.tls_mode == "tls" else "",
+                "tls": self.tls_mode if self.tls_mode != "none" else "",
                 "sni": self.domain if use_domain else "",
                 "alpn": "h2,http/1.1",
                 "fp": "chrome"
             }
-            client_link = f"vmess://{base64.b64encode(json.dumps(vmess_config).encode()).decode()}"
+            client_config = f"vmess://{base64.b64encode(json.dumps(vmess_config).encode()).decode()}"
         
         elif self.protocol == "trojan":
-            client_link = f"trojan://{self.uuid_or_password}@{address}:{self.port}?" \
-                         f"security={self.tls_mode}&type={self.transport}" \
-                         f"&sni={self.domain if use_domain else ''}" \
-                         f"&alpn=h2,http/1.1" \
-                         f"&path=%2F{self.protocol}-path" \
-                         f"#Trojan-{self.transport.upper()}"
+            client_config = f"trojan://{self.uuid_or_password}@{address}:{self.port}?" \
+                           f"security={self.tls_mode}&type={self.transport}" \
+                           f"&sni={self.domain if use_domain else ''}" \
+                           f"&alpn=h2,http/1.1" \
+                           f"&path=%2F{self.protocol}-path" \
+                           f"#{self.protocol}-{self.transport}"
         
-        elif self.protocol == "shadowsocks":
-            method = "chacha20-ietf-poly1305"  # Méthode recommandée
-            client_link = f"ss://{base64.b64encode(f'{method}:{self.uuid_or_password}'.encode()).decode()}@{address}:{self.port}#SS-{self.transport.upper()}"
+        print(client_config)
         
-        print(client_link)
-    
-        # 4. QR Code pour mobile
+        # QR Code pour mobile
         try:
             import qrcode
-            print(f"\n{Colors.GREEN}● QR Code pour clients mobiles:{Colors.NC}")
             qr = qrcode.QRCode()
-            qr.add_data(client_link)
+            qr.add_data(client_config)
             qr.print_ascii()
         except ImportError:
-            print(f"{Colors.YELLOW}Installez 'qrcode' pour afficher un QR Code: pip install qrcode{Colors.NC}")
-    
-        # 5. Paramètres détaillés
-        print(f"\n{Colors.BLUE}● Paramètres avancés:{Colors.NC}")
-        print(f"Adresse: {Colors.CYAN}{address}{Colors.NC}")
-        print(f"Port: {Colors.CYAN}{self.port}{Colors.NC}")
-        print(f"ID/Mot de passe: {Colors.CYAN}{self.uuid_or_password}{Colors.NC}")
-        print(f"Protocole: {Colors.CYAN}{self.protocol.upper()}{Colors.NC}")
-        print(f"Transport: {Colors.CYAN}{self.transport.upper()}{Colors.NC}")
-        print(f"Sécurité: {Colors.CYAN}{self.tls_mode.upper()}{Colors.NC}")
+            print(f"{Colors.YELLOW}Installez le module 'qrcode' pour afficher un QR Code{Colors.NC}")
         
-        if self.transport in ["ws", "h2"]:
-            print(f"Chemin: {Colors.CYAN}/{self.protocol}-path{Colors.NC}")
-        if self.tls_mode == "tls":
-            print(f"SNI: {Colors.CYAN}{self.domain if use_domain else 'auto'}{Colors.NC}")
-            print(f"Fingerprint: {Colors.CYAN}chrome{Colors.NC}")
-            print(f"ALPN: {Colors.CYAN}h2,http/1.1{Colors.NC}")
-    
-        # 6. Instructions supplémentaires
-        if use_domain:
-            print(f"\n{Colors.GREEN}● Instructions pour domaine:{Colors.NC}")
-            print(f"- Vérifiez que le DNS pointe bien vers: {self.get_public_ip()}")
-            print(f"- Configurez le reverse proxy si nécessaire")
-    
+        # Paramètres avancés
+        print(f"\n{Colors.BLUE}=== Paramètres Avancés ==={Colors.NC}")
+        print(f"• Adresse: {Colors.YELLOW}{address}{Colors.NC}")
+        print(f"• Port: {Colors.YELLOW}{self.port}{Colors.NC}")
+        print(f"• ID: {Colors.YELLOW}{self.uuid_or_password}{Colors.NC}")
+        print(f"• Transport: {Colors.YELLOW}{self.transport.upper()}{Colors.NC}")
+        print(f"• Chemin: {Colors.YELLOW}/{self.protocol}-path{Colors.NC}")
+        print(f"• SNI: {Colors.YELLOW}{self.domain if use_domain else 'auto'}{Colors.NC}")
+        print(f"• Fingerprint: {Colors.YELLOW}chrome{Colors.NC}")
+        print(f"• ALPN: {Colors.YELLOW}h2,http/1.1{Colors.NC}")
+        
+        # Instructions CDN
+        if use_cdn:
+            print(f"\n{Colors.GREEN}=== Configuration Cloudflare ==={Colors.NC}")
+            print("1. Dans l'interface Cloudflare:")
+            print("   • SSL/TLS: Full (strict)")
+            print("   • Network: WebSockets activé")
+            print("   • Rules: Cache Level = Bypass")
+            print("2. Vérifiez que le proxy est activé (icône orange)")
+            print("3. Recommandé: Activer TLS 1.3 et HTTP/3")
+        
+        input("\nAppuyez sur Entrée pour continuer...")
+        
     def show_cdn_instructions(self):
         """Affiche les instructions CDN communes"""
         print(f"\n{Colors.GREEN}=== Configuration CDN (Cloudflare) ==={Colors.NC}")
