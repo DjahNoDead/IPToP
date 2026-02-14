@@ -203,71 +203,71 @@ class UserManager:
         return False, "Format de date invalide. Utilisez YYYY-MM-DD, DD/MM/YYYY, DD-MM-YYYY ou DD.MM.YYYY", None
     
     def check_dependencies(self):
-    """Vérifie et installe les dépendances nécessaires"""
-    self.print_info("Vérification des dépendances...")
-    
-    # Vérifier si nous sommes dans Termux
-    is_termux = os.path.exists('/data/data/com.termux/files/usr')
-    
-    if is_termux:
-        self.print_warning("Détection de Termux - certaines fonctionnalités peuvent être limitées")
-    
-    # Correction pour Python 3.12+
-    try:
-        import distutils.spawn
-    except ImportError:
-        self.print_warning("Module distutils non disponible, tentative d'utilisation de setuptools...")
-        try:
-            import setuptools
-            self.print_success("Setuptools chargé avec succès")
-        except ImportError:
-            self.print_error("Ni distutils ni setuptools ne sont disponibles")
-            if not is_termux:
-                self.print_info("Installez setuptools: pip install setuptools")
-    
-    required_pkgs = ['docker.io', 'python3-docker']
-    missing_pkgs = []
-    
-    for pkg in required_pkgs:
-        if not self.is_package_installed(pkg):
-            missing_pkgs.append(pkg)
-    
-    if missing_pkgs:
-        self.print_warning(f"Paquets manquants: {', '.join(missing_pkgs)}")
+        """Vérifie et installe les dépendances nécessaires"""
+        self.print_info("Vérification des dépendances...")
+        
+        # Vérifier si nous sommes dans Termux
+        is_termux = os.path.exists('/data/data/com.termux/files/usr')
         
         if is_termux:
-            self.print_info("Dans Termux, installez: pkg install python-docker")
-            return
+            self.print_warning("Détection de Termux - certaines fonctionnalités peuvent être limitées")
         
+        # Correction pour Python 3.12+
         try:
-            subprocess.run(['apt-get', 'update'], check=True, capture_output=True)
-            subprocess.run(['apt-get', 'install', '-y'] + missing_pkgs, check=True, capture_output=True)
-            self.print_success("Dépendances installées avec succès")
-        except subprocess.CalledProcessError as e:
-            self.print_error(f"Échec de l'installation des dépendances: {e}")
-            logger.error(f"Erreur d'installation des dépendances: {e.stderr.decode() if e.stderr else str(e)}")
-            sys.exit(1)
-    
-    global docker
-    try:
-        import docker
-        self.print_success("Module Docker importé avec succès")
-    except ImportError as e:
-        self.print_error(f"Échec de l'importation du module docker: {e}")
-        self.print_info("Essayez: pip install docker")
+            import distutils.spawn
+        except ImportError:
+            self.print_warning("Module distutils non disponible, tentative d'utilisation de setuptools...")
+            try:
+                import setuptools
+                self.print_success("Setuptools chargé avec succès")
+            except ImportError:
+                self.print_error("Ni distutils ni setuptools ne sont disponibles")
+                if not is_termux:
+                    self.print_info("Installez setuptools: pip install setuptools")
         
-        # Tentative d'installation automatique
-        try:
-            self.print_info("Tentative d'installation automatique du module docker...")
-            subprocess.run([sys.executable, '-m', 'pip', 'install', '--upgrade', 'docker'], 
-                         check=True, capture_output=True)
-            import docker
-            self.print_success("Module Docker installé et importé avec succès!")
-        except Exception as install_error:
-            self.print_error(f"Échec de l'installation automatique: {install_error}")
+        required_pkgs = ['docker.io', 'python3-docker']
+        missing_pkgs = []
+        
+        for pkg in required_pkgs:
+            if not self.is_package_installed(pkg):
+                missing_pkgs.append(pkg)
+        
+        if missing_pkgs:
+            self.print_warning(f"Paquets manquants: {', '.join(missing_pkgs)}")
+            
             if is_termux:
-                self.print_warning("Fonctionnalité Docker désactivée dans Termux")
-    
+                self.print_info("Dans Termux, installez: pkg install python-docker")
+                return
+            
+            try:
+                subprocess.run(['apt-get', 'update'], check=True, capture_output=True)
+                subprocess.run(['apt-get', 'install', '-y'] + missing_pkgs, check=True, capture_output=True)
+                self.print_success("Dépendances installées avec succès")
+            except subprocess.CalledProcessError as e:
+                self.print_error(f"Échec de l'installation des dépendances: {e}")
+                logger.error(f"Erreur d'installation des dépendances: {e.stderr.decode() if e.stderr else str(e)}")
+                sys.exit(1)
+        
+        global docker
+        try:
+            import docker
+            self.print_success("Module Docker importé avec succès")
+        except ImportError as e:
+            self.print_error(f"Échec de l'importation du module docker: {e}")
+            self.print_info("Essayez: pip install docker")
+            
+            # Tentative d'installation automatique
+            try:
+                self.print_info("Tentative d'installation automatique du module docker...")
+                subprocess.run([sys.executable, '-m', 'pip', 'install', '--upgrade', 'docker'], 
+                             check=True, capture_output=True)
+                import docker
+                self.print_success("Module Docker installé et importé avec succès!")
+            except Exception as install_error:
+                self.print_error(f"Échec de l'installation automatique: {install_error}")
+                if is_termux:
+                    self.print_warning("Fonctionnalité Docker désactivée dans Termux")
+        
     def create_dockerized_user(self, username: str, password: str, is_admin: bool, ssh_key: Optional[str] = None):
         """Crée un utilisateur dans un conteneur Docker"""
         # Vérifier si Docker est disponible
