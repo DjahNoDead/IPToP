@@ -1,926 +1,225 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
-LauncherScanner Pro - Version 4.4 (FINAL)
-By DjahNoDead 🕵️‍♂️
-"""
+# Compatible avec toutes les distributions Linux + Termux/Android
+# Ubuntu, Debian, CentOS, RHEL, Fedora, Arch, Alpine, Termux, Android
 
-import os
 import sys
-import time
-import json
-import hashlib
+import os
 import base64
-import threading
-import subprocess
-import importlib.util
-import urllib.request
-import urllib.error
-from pathlib import Path
-from datetime import datetime, timedelta
-from typing import Optional, Dict, Any, Tuple
-import itertools
-import socket
+import zlib
+import warnings
+
+# Suppression des warnings inutiles
+warnings.filterwarnings('ignore', category=SyntaxWarning)
+warnings.filterwarnings('ignore', category=DeprecationWarning)
 
 # ============================================================================
-# CONFIGURATION
+# VÉRIFICATIONS DE COMPATIBILITÉ STRICTES
 # ============================================================================
 
-class Config:
-    """Configuration centralisée"""
-    
-    # URLs
-    REPO_BASE = "https://raw.githubusercontent.com/DjahNoDead/IPToP/main/"
-    VERSION_LAUNCHER_URL = REPO_BASE + "versionLaun.txt"
-    LAUNCHER_URL = REPO_BASE + "LauncherScanner.py"
-    VERSION_SCRIPT_URL = REPO_BASE + "versionScan.txt"
-    SCRIPT_URL = REPO_BASE + "iptp.py"
-    
-    # Chemins
-    BASE_DIR = Path.home() / ".config" / ".iptp_secure"
-    CACHE_FILE = BASE_DIR / "cache.dat"
-    VERSION_FILE = BASE_DIR / "version.local"
-    CONFIG_FILE = BASE_DIR / "config.json"
-    LOCK_FILE = BASE_DIR / "update.lock"
-    LOG_FILE = BASE_DIR / "launcher.log"
-    INSTALL_DONE_FILE = BASE_DIR / "install_done.flag"
-    LAST_CHECK_FILE = BASE_DIR / "last_check.time"
-    
-    # Sécurité
-    SECRET_KEY = hashlib.sha256(
-        b"MaCleSecretePersonnalisableS@int_Saint-S@int!Est#Le&Tout?Puissant!"
-    ).digest()
-    
-    # Timeouts (secondes)
-    CONNECTION_TIMEOUT = 5
-    DOWNLOAD_TIMEOUT = 15
-    LOCK_TIMEOUT = 300
-    CACHE_DURATION = 3600
-    
-    # Modules requis (psutil devient optionnel)
-    REQUIRED_MODULES = {
-        "colorama": "colorama",
-        "requests": "requests",
-        "Cryptodome": "pycryptodome",
-        "dns": "dnspython",
-    }
-    
-    OPTIONAL_MODULES = {
-        "psutil": "psutil",
-    }
+# Constante de version minimale (accessible globalement)
+_MIN_VERSION = (3, 6)
 
+# 1. Vérification Python 3 stricte
+if sys.version_info.major != 3:
+    print("ERREUR: Python 3 est requis")
+    print("Ce script doit être exécuté avec python3, pas python")
+    print()
+    print("Commande correcte:")
+    print(f"  python3 {sys.argv[0]}")
+    print()
+    print("Si python3 n'est pas disponible, installez-le:")
+    print("  Ubuntu/Debian: sudo apt install python3")
+    print("  CentOS/RHEL:   sudo yum install python3")
+    print("  Arch:          sudo pacman -S python")
+    print("  Alpine:        apk add python3")
+    print("  Termux:        pkg install python")
+    sys.exit(1)
 
-# ============================================================================
-# UTILS - COULEURS
-# ============================================================================
+# 2. Vérification version Python minimale
+if sys.version_info < _MIN_VERSION:
+    print(f"ERREUR: Python {_MIN_VERSION[0]}.{_MIN_VERSION[1]}+ est requis")
+    print(f"Version actuelle: {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}")
+    print()
+    print("Mettez à jour Python:")
+    print("  Ubuntu/Debian: sudo apt install python3.{_MIN_VERSION[1]+1}")
+    print("  CentOS/RHEL8:  sudo dnf install python3")
+    print("  CentOS7:       sudo yum install python36")
+    print("  Termux:        pkg upgrade && pkg install python")
+    sys.exit(1)
 
-class Colors:
-    """Gestion des couleurs ANSI"""
-    
-    RED = "\033[91m"
-    GREEN = "\033[92m"
-    YELLOW = "\033[93m"
-    BLUE = "\033[94m"
-    MAGENTA = "\033[95m"
-    CYAN = "\033[96m"
-    WHITE = "\033[97m"
-    RESET = "\033[0m"
-    
-    BOLD = "\033[1m"
-    DIM = "\033[2m"
-    UNDERLINE = "\033[4m"
-    BLINK = "\033[5m"
-    
-    @classmethod
-    def disable(cls):
-        for attr in dir(cls):
-            if not attr.startswith('_') and isinstance(getattr(cls, attr), str):
-                if attr not in ['RESET', 'disable']:
-                    setattr(cls, attr, '')
-    
-    @classmethod
-    def colorize(cls, text: str, color: str, style: str = "") -> str:
-        return f"{style}{color}{text}{cls.RESET}"
+# 3. Vérification des modules essentiels
+_REQUIRED_MODULES = ['base64', 'zlib']
+_missing_modules = []
+for module in _REQUIRED_MODULES:
+    try:
+        __import__(module)
+    except ImportError:
+        _missing_modules.append(module)
 
+if _missing_modules:
+    print("ERREUR: Modules Python essentiels manquants")
+    print("Manquant:", ", ".join(_missing_modules))
+    print()
+    print("Ces modules font partie de la bibliothèque standard Python.")
+    print("Votre installation Python semble corrompue.")
+    print("Réinstallez Python 3.6+ depuis les sources officielles.")
+    print("Pour Termux: pkg reinstall python")
+    sys.exit(1)
 
 # ============================================================================
-# UTILS - LOGGER
+# DÉTECTION PLATEFORME AMÉLIORÉE (CORRECTION POUR TERMUX)
 # ============================================================================
 
-class Logger:
-    """Système de logging avancé"""
-    
-    def __init__(self, log_file: Path):
-        self.log_file = log_file
-        self.log_file.parent.mkdir(parents=True, exist_ok=True)
-        self.silent = False
-    
-    def log(self, level: str, message: str, print_msg: bool = True):
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        log_entry = f"[{timestamp}] [{level}] {message}\n"
-        
+# Détection de la plateforme (INCLUT ANDROID/TERMUX !)
+_IS_LINUX = sys.platform.startswith('linux')
+_IS_WINDOWS = sys.platform.startswith('win')
+_IS_MACOS = sys.platform.startswith('darwin')
+_IS_CYGWIN = sys.platform.startswith('cygwin')
+_IS_ANDROID = sys.platform == 'android' or 'ANDROID_ROOT' in os.environ
+_IS_TERMUX = 'TERMUX_VERSION' in os.environ or os.path.exists('/data/data/com.termux')
+
+# Support pour Android/Termux (considéré comme Linux)
+_IS_SUPPORTED_LINUX = _IS_LINUX or _IS_ANDROID or _IS_TERMUX
+_SUPPORTED = _IS_SUPPORTED_LINUX or _IS_WINDOWS or _IS_MACOS or _IS_CYGWIN
+
+if not _SUPPORTED:
+    print(f"ERREUR: Plateforme non supportée: android")
+    print()
+    print("Plateformes supportées:")
+    print("  • Linux (toutes distributions)")
+    print("  • Android/Termux")
+    print("  • Windows (avec Python 3)")
+    print("  • macOS (10.9+)")
+    print("  • Cygwin (Windows)")
+    sys.exit(1)
+
+# Message spécial pour Termux/Android
+if _IS_ANDROID or _IS_TERMUX:
+    print("INFO: Android/Termux détecté - compatibilité vérifiée ✓")
+    # Force la détection comme Linux pour la suite
+    original_platform = sys.platform
+    sys.platform = "linux"  # Petit hack pour tromper les vérifications suivantes
+
+# Détection musl/glibc (pour Alpine Linux) - ignoré sur Android
+try:
+    import platform
+    if not (_IS_ANDROID or _IS_TERMUX):
+        libc_info = platform.libc_ver()
+        _LIBC_TYPE = libc_info[0] if libc_info else 'glibc'
+        if _LIBC_TYPE == 'musl':
+            print("INFO: Alpine Linux (musl) détecté - compatibilité vérifiée")
+except:
+    pass
+
+# ============================================================================
+# DÉCHIFFREMENT
+# ============================================================================
+
+# Fonction de déchiffrement XOR (compatible toutes versions Python)
+def _xor_decrypt(data: bytes, key: bytes) -> bytes:
+    """Décryptage XOR ultra-compatible"""
+    key_length = len(key)
+    result = bytearray(len(data))
+
+    for i in range(len(data)):
+        result[i] = data[i] ^ key[i % key_length]
+
+    return bytes(result)
+
+# Données obfusquées
+_ENCRYPTED_DATA = "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"
+_DECRYPTION_KEY = [72, 99, 112, 103, 105, 107, 51, 89, 67, 101, 57, 109, 65, 116, 57, 90]
+
+# ============================================================================
+# EXÉCUTION PRINCIPALE
+# ============================================================================
+
+def _main_execution():
+    """Point d'entrée principal avec gestion d'erreurs complète"""
+    try:
+        # Phase 1: Décodage Base64
         try:
-            with open(self.log_file, "a", encoding="utf-8") as f:
-                f.write(log_entry)
-        except:
-            pass
-        
-        if print_msg and not self.silent:
-            color_map = {
-                "INFO": Colors.GREEN,
-                "WARN": Colors.YELLOW,
-                "ERROR": Colors.RED,
-                "DEBUG": Colors.BLUE,
-                "SUCCESS": Colors.CYAN
-            }
-            color = color_map.get(level, Colors.WHITE)
-            print(f"{color}[{level}]{Colors.RESET} {message}")
-    
-    def info(self, msg: str): self.log("INFO", msg)
-    def warn(self, msg: str): self.log("WARN", msg)
-    def error(self, msg: str): self.log("ERROR", msg)
-    def debug(self, msg: str): self.log("DEBUG", msg)
-    def success(self, msg: str): self.log("SUCCESS", msg)
+            decoded_data = base64.b64decode(_ENCRYPTED_DATA)
+        except base64.binascii.Error as e:
+            print("ERREUR: Données Base64 corrompues")
+            print(f"Détail: {e}")
+            return 1
 
-
-# ============================================================================
-# UTILS - SPINNER
-# ============================================================================
-
-class Spinner:
-    """Animation de chargement élégante"""
-    
-    def __init__(self, message: str = "", style: str = "dots"):
-        self.message = message
-        self.running = False
-        self.thread = None
-        
-        self.styles = {
-            "dots": ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'],
-            "line": ['|', '/', '-', '\\'],
-            "circle": ['◜', '◠', '◝', '◞', '◡', '◟'],
-            "square": ['▖', '▘', '▝', '▗'],
-            "clock": ['🕛', '🕐', '🕑', '🕒', '🕓', '🕔', '🕕', '🕖', '🕗', '🕘', '🕙', '🕚'],
-        }
-        self.frames = self.styles.get(style, self.styles["dots"])
-    
-    def start(self):
-        self.running = True
-        self.thread = threading.Thread(target=self._animate)
-        self.thread.daemon = True
-        self.thread.start()
-    
-    def _animate(self):
-        for frame in itertools.cycle(self.frames):
-            if not self.running:
-                break
-            sys.stdout.write(f"\r{self.message} {Colors.CYAN}{frame}{Colors.RESET}")
-            sys.stdout.flush()
-            time.sleep(0.1)
-        sys.stdout.write("\r" + " " * (len(self.message) + 10) + "\r")
-        sys.stdout.flush()
-    
-    def stop(self):
-        self.running = False
-        if self.thread:
-            self.thread.join(timeout=0.5)
-
-
-# ============================================================================
-# BANNER
-# ============================================================================
-
-class Banner:
-    """Bannière animée"""
-    
-    @staticmethod
-    def show():
-        banner = f"""
-{Colors.CYAN}___ ____ _____     ____
-{Colors.CYAN}|_ _|  _ \\_   _|__ |  _ \\
-{Colors.CYAN} | || |_) || |/ _ \\| |_) |
-{Colors.CYAN} | ||  __/ | | (_) |  __/
-{Colors.CYAN}|___|_|    |_|\\___/|_|
-{Colors.GREEN}         Scanner 4.4 Pro{Colors.RESET}
-{Colors.BLUE}     DjahNoDead 🕵️‍♂️{Colors.RESET}
-{Colors.MAGENTA}https://t.me/+44xRl7P_SoBkOTVk{Colors.RESET}
-
-{Colors.YELLOW}IPToP💪👽 (Internet Pour Tous ou Personne){Colors.RESET}
-"""
-        print(banner)
-        time.sleep(0.5)
-
-
-# ============================================================================
-# CRYPTO
-# ============================================================================
-
-class Crypto:
-    """Gestion du chiffrement AES-256"""
-    
-    def __init__(self, key: bytes):
-        self.key = key
-    
-    def encrypt(self, content: str) -> str:
+        # Phase 2: Déchiffrement XOR
         try:
-            from Cryptodome.Cipher import AES
-            from Cryptodome.Util.Padding import pad
-        except ImportError:
-            try:
-                from Crypto.Cipher import AES
-                from Crypto.Util.Padding import pad
-            except ImportError:
-                raise ImportError("PyCryptodome requis")
-        
-        cipher = AES.new(self.key, AES.MODE_CBC)
-        ct_bytes = cipher.encrypt(pad(content.encode("utf-8"), AES.block_size))
-        iv = cipher.iv
-        return base64.b64encode(iv + ct_bytes).decode("utf-8")
-    
-    def decrypt(self, encrypted: str) -> Optional[str]:
-        try:
-            from Cryptodome.Cipher import AES
-            from Cryptodome.Util.Padding import unpad
-        except ImportError:
-            try:
-                from Crypto.Cipher import AES
-                from Crypto.Util.Padding import unpad
-            except ImportError:
-                raise ImportError("PyCryptodome requis")
-        
-        try:
-            data = base64.b64decode(encrypted)
-            if len(data) < 16:
-                return None
-            iv = data[:16]
-            ct = data[16:]
-            cipher = AES.new(self.key, AES.MODE_CBC, iv=iv)
-            decrypted = unpad(cipher.decrypt(ct), AES.block_size)
-            return decrypted.decode("utf-8")
-        except Exception:
-            return None
-
-
-# ============================================================================
-# GESTIONNAIRE DE PAQUETS
-# ============================================================================
-
-class PackageManager:
-    """Gestionnaire d'installation des dépendances"""
-    
-    def __init__(self, logger: Logger):
-        self.logger = logger
-        self.installed = []
-        self.failed = []
-        self.optional_failed = []
-    
-    def is_installed(self, module_name: str) -> bool:
-        return importlib.util.find_spec(module_name) is not None
-    
-    def install_module(self, pip_name: str, is_optional: bool = False) -> bool:
-        """Installe un module avec gestion des erreurs"""
-        try:
-            cmd = [sys.executable, "-m", "pip", "install", "--quiet", pip_name]
-            
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=60
-            )
-            
-            if result.returncode == 0:
-                if not is_optional:
-                    self.installed.append(pip_name)
-                return True
-            else:
-                if is_optional:
-                    self.optional_failed.append(pip_name)
-                else:
-                    self.failed.append(pip_name)
-                return False
-                
-        except subprocess.TimeoutExpired:
-            if is_optional:
-                self.optional_failed.append(pip_name)
-            else:
-                self.failed.append(pip_name)
-            return False
+            decrypted_data = _xor_decrypt(decoded_data, bytes(_DECRYPTION_KEY))
         except Exception as e:
-            if is_optional:
-                self.optional_failed.append(pip_name)
-            else:
-                self.failed.append(pip_name)
-            return False
-    
-    def install_all(self, modules: Dict[str, str]) -> bool:
-        """Installe tous les modules requis"""
-        to_install = []
-        
-        for import_name, pip_name in modules.items():
-            if not self.is_installed(import_name):
-                to_install.append(pip_name)
-        
-        if not to_install:
-            self.logger.success("Tous les modules requis sont déjà installés")
-            return True
-        
-        self.logger.info(f"Installation de {len(to_install)} module(s)...")
-        
-        for pip_name in to_install:
-            print(f"{Colors.CYAN}[INSTALL]{Colors.RESET} Installation de {pip_name}...")
-            if self.install_module(pip_name, is_optional=False):
-                print(f"{Colors.GREEN}✓{Colors.RESET} {pip_name} installé")
-            else:
-                print(f"{Colors.RED}✗{Colors.RESET} {pip_name} échec")
-        
-        if self.installed:
-            self.logger.success(f"Modules installés: {', '.join(self.installed)}")
-        if self.failed:
-            self.logger.warn(f"Échecs critiques: {', '.join(self.failed)}")
-        
-        return len(self.failed) == 0
-    
-    def install_optional(self, modules: Dict[str, str]):
-        """Installe les modules optionnels sans bloquer"""
-        for import_name, pip_name in modules.items():
-            if not self.is_installed(import_name):
-                if self.install_module(pip_name, is_optional=True):
-                    self.logger.debug(f"Module optionnel {pip_name} installé")
-                else:
-                    self.logger.debug(f"Module optionnel {pip_name} non disponible")
+            print("ERREUR: Échec du déchiffrement")
+            print("La clé de déchiffrement est incorrecte ou les données sont corrompues")
+            return 1
 
+        # Phase 3: Inversion
+        reversed_data = decrypted_data[::-1]
 
-# ============================================================================
-# GESTIONNAIRE DE MISE À JOUR (ULTRA INTELLIGENT)
-# ============================================================================
+        # Phase 4: Décompression
+        try:
+            decompressed_data = zlib.decompress(reversed_data)
+        except zlib.error as e:
+            print("ERREUR: Échec de la décompression")
+            print("Les données sont corrompues ou ont été altérées")
+            return 1
 
-class UpdateManager:
-    """Gestionnaire de mises à jour intelligent avec cache de version"""
-    
-    def __init__(self, config: Config, logger: Logger):
-        self.config = config
-        self.logger = logger
-        self.crypto = Crypto(config.SECRET_KEY)
-        self._version_cache = {}  # Cache en mémoire pour la session
-    
-    def _compare_versions(self, v1: str, v2: str) -> int:
-        """
-        Compare deux versions
-        Retourne: 1 si v1 > v2, -1 si v1 < v2, 0 si égal
-        """
-        def normalize(v):
-            return [int(x) for x in v.split('.')]
-        
+        # Phase 5: Exécution
         try:
-            v1_parts = normalize(v1)
-            v2_parts = normalize(v2)
-            
-            for i in range(max(len(v1_parts), len(v2_parts))):
-                v1_val = v1_parts[i] if i < len(v1_parts) else 0
-                v2_val = v2_parts[i] if i < len(v2_parts) else 0
-                if v1_val > v2_val:
-                    return 1
-                elif v1_val < v2_val:
-                    return -1
-            return 0
-        except:
-            # En cas d'erreur, comparaison simple
-            if v1 == v2:
-                return 0
-            return 1 if v1 > v2 else -1
-    
-    def get_cached_remote_version(self, url_key: str) -> Optional[str]:
-        """Récupère la version distante depuis le cache disque"""
-        cache_file = self.config.BASE_DIR / f"version_cache_{url_key}.txt"
-        
-        if not cache_file.exists():
-            return None
-        
-        try:
-            with open(cache_file, "r") as f:
-                data = json.load(f)
-            
-            # Vérifier si le cache est encore valide (1 heure)
-            cache_time = data.get("timestamp", 0)
-            if time.time() - cache_time > 3600:  # 1 heure
-                return None
-            
-            return data.get("version")
-        except:
-            return None
-    
-    def cache_remote_version(self, url_key: str, version: str):
-        """Met en cache la version distante"""
-        cache_file = self.config.BASE_DIR / f"version_cache_{url_key}.txt"
-        
-        try:
-            with open(cache_file, "w") as f:
-                json.dump({
-                    "version": version,
-                    "timestamp": time.time()
-                }, f)
-        except:
-            pass
-    
-    def get_remote_version(self, url: str, url_key: str, force: bool = False) -> Optional[str]:
-        """
-        Récupère la version distante avec cache intelligent
-        force=True: ignore le cache et force la requête
-        """
-        # Vérifier le cache en mémoire d'abord
-        if not force and url_key in self._version_cache:
-            return self._version_cache[url_key]
-        
-        # Vérifier le cache disque
-        if not force:
-            cached = self.get_cached_remote_version(url_key)
-            if cached:
-                self._version_cache[url_key] = cached
-                return cached
-        
-        # Requête réseau
-        try:
-            req = urllib.request.Request(
-                url,
-                headers={'User-Agent': 'Mozilla/5.0'}
-            )
-            with urllib.request.urlopen(req, timeout=self.config.CONNECTION_TIMEOUT) as r:
-                version = r.read().decode().strip()
-                
-                if version:
-                    # Mettre en cache
-                    self._version_cache[url_key] = version
-                    self.cache_remote_version(url_key, version)
-                    return version
-                
-        except Exception as e:
-            self.logger.debug(f"Impossible de récupérer {url}: {str(e)}")
-        
-        return None
-    
-    def download_file(self, url: str) -> Optional[str]:
-        try:
-            req = urllib.request.Request(
-                url,
-                headers={'User-Agent': 'Mozilla/5.0'}
-            )
-            with urllib.request.urlopen(req, timeout=self.config.DOWNLOAD_TIMEOUT) as r:
-                return r.read().decode('utf-8')
-        except Exception as e:
-            self.logger.debug(f"Échec téléchargement {url}: {str(e)}")
-            return None
-    
-    def check_launcher_update(self, current_version: str, force: bool = False) -> Tuple[bool, Optional[str]]:
-        """
-        Vérifie la mise à jour du launcher
-        force=True: ignore le cache et force la vérification
-        """
-        remote_version = self.get_remote_version(
-            self.config.VERSION_LAUNCHER_URL, 
-            "launcher", 
-            force=force
-        )
-        
-        if not remote_version:
-            return False, None
-        
-        # Comparaison intelligente des versions
-        if self._compare_versions(remote_version, current_version) <= 0:
-            return False, None
-        
-        self.logger.info(f"Nouvelle version du launcher disponible: v{remote_version} (actuelle: v{current_version})")
-        return True, remote_version
-    
-    def check_script_update(self, current_version: Optional[str], force: bool = False) -> Tuple[bool, Optional[str], Optional[str]]:
-        """
-        Vérifie la mise à jour du script
-        Retourne: (has_update, new_version, script_content)
-        force=True: ignore le cache et force la vérification
-        """
-        # Récupérer la version distante
-        remote_version = self.get_remote_version(
-            self.config.VERSION_SCRIPT_URL, 
-            "script", 
-            force=force
-        )
-        
-        if not remote_version:
-            return False, None, None
-        
-        # Si pas de version locale, c'est une première installation
-        if not current_version:
-            self.logger.info(f"Première installation: version distante v{remote_version}")
-            script_content = self.download_file(self.config.SCRIPT_URL)
-            if script_content:
-                return True, remote_version, script_content
-            return False, None, None
-        
-        # Comparaison intelligente des versions
-        if self._compare_versions(remote_version, current_version) <= 0:
-            self.logger.debug(f"Version à jour: v{current_version} (distante: v{remote_version})")
-            return False, None, None
-        
-        # Nouvelle version disponible
-        self.logger.info(f"Nouvelle version du script disponible: v{remote_version} (actuelle: v{current_version})")
-        
-        # Télécharger la nouvelle version
-        script_content = self.download_file(self.config.SCRIPT_URL)
-        if not script_content:
-            self.logger.error("Échec du téléchargement du script")
-            return False, None, None
-        
-        return True, remote_version, script_content
-    
-    def update_script(self, script_content: str, version: str) -> bool:
-        """Met à jour le script en cache"""
-        try:
-            # Vérifier si le contenu a vraiment changé
-            if self.config.CACHE_FILE.exists():
-                with open(self.config.CACHE_FILE, "r", encoding="utf-8") as f:
-                    old_encrypted = f.read().strip()
-                old_content = self.crypto.decrypt(old_encrypted)
-                
-                if old_content == script_content:
-                    self.logger.debug("Contenu identique, mise à jour ignorée")
-                    return True
-            
-            # Chiffrer et sauvegarder
-            encrypted = self.crypto.encrypt(script_content)
-            with open(self.config.CACHE_FILE, "w", encoding="utf-8") as f:
-                f.write(encrypted)
-            self.config.CACHE_FILE.chmod(0o600)
-            
-            # Sauvegarder la version
-            with open(self.config.VERSION_FILE, "w", encoding="utf-8") as f:
-                f.write(version)
-            self.config.VERSION_FILE.chmod(0o600)
-            
-            self.logger.success(f"Script mis à jour vers v{version}")
-            return True
-            
-        except Exception as e:
-            self.logger.error(f"Échec sauvegarde: {str(e)}")
-            return False
-    
-    def update_launcher(self) -> bool:
-        """Met à jour le launcher avec vérification d'intégrité"""
-        self.logger.info("Téléchargement de la nouvelle version...")
-        new_code = self.download_file(self.config.LAUNCHER_URL)
-        
-        if not new_code:
-            self.logger.error("Échec du téléchargement")
-            return False
-        
-        current_file = Path(__file__).resolve()
-        backup_file = current_file.with_suffix('.py.bak')
-        temp_file = current_file.with_suffix('.py.tmp')
-        
-        try:
-            # Vérifier que le contenu téléchargé est valide
-            if "LauncherScanner" not in new_code or "class Launcher" not in new_code:
-                self.logger.error("Fichier téléchargé invalide")
-                return False
-            
-            if current_file.exists():
-                import shutil
-                shutil.copy2(current_file, backup_file)
-            
-            with open(temp_file, "w", encoding="utf-8") as f:
-                f.write(new_code)
-            
-            temp_file.replace(current_file)
-            
-            self.logger.success("Mise à jour du launcher réussie")
-            return True
-            
-        except Exception as e:
-            self.logger.error(f"Échec mise à jour: {str(e)}")
-            
-            if backup_file.exists():
-                backup_file.replace(current_file)
-            
-            return False
-    
-    def force_check_updates(self) -> Dict[str, Any]:
-        """
-        Force une vérification complète des mises à jour
-        Utile pour le mode debug ou pour forcer une mise à jour
-        """
-        results = {
-            "launcher": {"has_update": False, "version": None},
-            "script": {"has_update": False, "version": None}
-        }
-        
-        # Vérifier le launcher
-        has_update, version = self.check_launcher_update(Launcher.VERSION, force=True)
-        results["launcher"] = {"has_update": has_update, "version": version}
-        
-        # Vérifier le script
-        script_version = None
-        version_file = self.config.VERSION_FILE
-        if version_file.exists():
-            try:
-                with open(version_file, "r") as f:
-                    script_version = f.read().strip()
-            except:
-                pass
-        
-        has_update, version, content = self.check_script_update(script_version, force=True)
-        results["script"] = {"has_update": has_update, "version": version}
-        
-        return results
-
-# ============================================================================
-# LAUNCHER PRINCIPAL
-# ============================================================================
-
-class Launcher:
-    """Classe principale du launcher"""
-    
-    VERSION = "4.4"
-    
-    def __init__(self):
-        self.start_time = time.time()
-        self.config = Config()
-        self.logger = Logger(self.config.LOG_FILE)
-        self.update_manager = UpdateManager(self.config, self.logger)
-        self.package_manager = PackageManager(self.logger)
-        
-        self.script_version = None
-        self.script_content = None
-        self.is_restart = os.environ.get("LAUNCHER_RESTART") == "1"
-    
-    def initialize(self):
-        self.config.BASE_DIR.mkdir(parents=True, mode=0o700, exist_ok=True)
-        
-        test_file = self.config.BASE_DIR / "test.tmp"
-        try:
-            test_file.touch()
-            test_file.unlink()
-        except Exception as e:
-            self.logger.error(f"Permission refusée: {str(e)}")
-            sys.exit(1)
-        
-        self._cleanup_stale_locks()
-    
-    def _cleanup_stale_locks(self):
-        if self.config.LOCK_FILE.exists():
-            try:
-                with open(self.config.LOCK_FILE, "r") as f:
-                    pid = f.read().strip()
-                
-                if pid and pid.isdigit():
-                    try:
-                        os.kill(int(pid), 0)
-                    except OSError:
-                        self.config.LOCK_FILE.unlink()
-                        self.logger.debug("Lock orphelin nettoyé")
-                else:
-                    self.config.LOCK_FILE.unlink()
-            except:
-                self.config.LOCK_FILE.unlink()
-    
-    def acquire_lock(self) -> bool:
-        if self.config.LOCK_FILE.exists():
-            return False
-        
-        try:
-            with open(self.config.LOCK_FILE, "w") as f:
-                f.write(str(os.getpid()))
-            return True
-        except:
-            return False
-    
-    def release_lock(self):
-        try:
-            if self.config.LOCK_FILE.exists():
-                self.config.LOCK_FILE.unlink()
-        except:
-            pass
-    
-    def load_script_from_cache(self) -> Optional[str]:
-        if not self.config.CACHE_FILE.exists():
-            self.logger.debug("Fichier cache inexistant")
-            return None
-        
-        try:
-            with open(self.config.CACHE_FILE, "r", encoding="utf-8") as f:
-                encrypted = f.read().strip()
-            
-            if not encrypted:
-                self.logger.debug("Cache vide")
-                return None
-            
-            decrypted = self.update_manager.crypto.decrypt(encrypted)
-            if decrypted:
-                return decrypted
-            else:
-                self.logger.warn("Échec du déchiffrement du cache")
-                return None
-                
-        except Exception as e:
-            self.logger.debug(f"Erreur lecture cache: {str(e)}")
-            return None
-    
-    def load_script_version(self) -> Optional[str]:
-        if not self.config.VERSION_FILE.exists():
-            return None
-        
-        try:
-            with open(self.config.VERSION_FILE, "r", encoding="utf-8") as f:
-                return f.read().strip()
-        except:
-            return None
-    
-    def is_online(self) -> bool:
-        hosts = [
-            ("1.1.1.1", 53),
-            ("8.8.8.8", 53),
-            ("github.com", 80)
-        ]
-        
-        for host, port in hosts:
-            try:
-                socket.setdefaulttimeout(self.config.CONNECTION_TIMEOUT)
-                socket.socket(socket.AF_INET, socket.SOCK_STREAM).connect((host, port))
-                return True
-            except:
-                continue
-        
-        try:
-            urllib.request.urlopen("https://1.1.1.1", timeout=self.config.CONNECTION_TIMEOUT)
-            return True
-        except:
-            pass
-        
-        return False
-    
-    def ensure_script_available(self) -> bool:
-        """S'assure que le script est disponible"""
-        self.script_content = self.load_script_from_cache()
-        
-        if self.script_content:
-            self.logger.success("Script chargé depuis le cache")
-            return True
-        
-        if self.is_online():
-            self.logger.info("Téléchargement initial du script...")
-            script_content = self.update_manager.download_file(self.config.SCRIPT_URL)
-            if script_content:
-                try:
-                    encrypted = self.update_manager.crypto.encrypt(script_content)
-                    with open(self.config.CACHE_FILE, "w", encoding="utf-8") as f:
-                        f.write(encrypted)
-                    self.config.CACHE_FILE.chmod(0o600)
-                    
-                    remote_version = self.update_manager.get_remote_version(self.config.VERSION_SCRIPT_URL)
-                    if remote_version:
-                        with open(self.config.VERSION_FILE, "w", encoding="utf-8") as f:
-                            f.write(remote_version)
-                    
-                    self.script_content = script_content
-                    self.logger.success("Script téléchargé et mis en cache")
-                    return True
-                except Exception as e:
-                    self.logger.error(f"Erreur lors de la mise en cache: {str(e)}")
-                    self.script_content = script_content
-                    return True
-        
-        return False
-    
-    def run(self):
-        """Point d'entrée principal"""
-        
-        try:
-            # Initialisation
-            self.initialize()
-            
-            # Bannière
-            Banner.show()
-            
-            # Vérifier si c'est un redémarrage
-            is_restart = os.environ.get("LAUNCHER_RESTART") == "1"
-            install_already_done = self.config.INSTALL_DONE_FILE.exists()
-            
-            # Mode force update via variable d'environnement
-            force_update = os.environ.get("LAUNCHER_FORCE_UPDATE") == "1"
-            
-            # Vérification connexion
-            online = self.is_online()
-            if not online:
-                self.logger.warn("Mode hors-ligne - utilisation du cache")
-            else:
-                self.logger.info("Connexion internet détectée")
-            
-            # Installation des dépendances (UNIQUEMENT à la première exécution)
-            if online and not is_restart and not install_already_done:
-                print(f"{Colors.CYAN}[INFO] Vérification et installation des dépendances...{Colors.RESET}")
-                
-                deps_ok = self.package_manager.install_all(self.config.REQUIRED_MODULES)
-                self.package_manager.install_optional(self.config.OPTIONAL_MODULES)
-                
-                try:
-                    self.config.INSTALL_DONE_FILE.touch()
-                except:
-                    pass
-                
-                if not deps_ok:
-                    self.logger.warn("Certaines dépendances critiques manquent")
-                    time.sleep(2)
-            
-            # Chargement de la version locale du script
-            self.script_version = self.load_script_version()
-            self.logger.debug(f"Version locale du script: {self.script_version or 'aucune'}")
-            
-            # Mise à jour du script (vérification intelligente)
-            if online:
-                has_update, new_version, new_script = self.update_manager.check_script_update(
-                    self.script_version, 
-                    force=force_update
-                )
-                
-                if has_update and new_script:
-                    self.logger.info(f"📥 Mise à jour du script v{self.script_version} → v{new_version}")
-                    
-                    if self.update_manager.update_script(new_script, new_version):
-                        self.script_content = new_script
-                        self.script_version = new_version
-                        self.logger.success(f"✅ Script mis à jour vers v{new_version}")
-                    else:
-                        self.logger.error("❌ Échec de la mise à jour, utilisation de l'ancienne version")
-                        self.script_content = self.load_script_from_cache()
-                else:
-                    # Charger depuis le cache
-                    self.script_content = self.load_script_from_cache()
-                    if self.script_content and self.script_version:
-                        self.logger.debug(f"Script à jour: v{self.script_version}")
-            
-            # Si toujours pas de script (première exécution ou cache vide)
-            if not self.script_content:
-                if not self.ensure_script_available():
-                    self.logger.error("Impossible d'obtenir le script")
-                    sys.exit(1)
-            
-            # Mise à jour du launcher (seulement si pas un redémarrage)
-            if online and not is_restart and self.acquire_lock():
-                try:
-                    has_update, new_version = self.update_manager.check_launcher_update(
-                        self.VERSION,
-                        force=force_update
-                    )
-                    
-                    if has_update:
-                        self.logger.info(f"📥 Mise à jour du launcher v{self.VERSION} → v{new_version}")
-                        if self.update_manager.update_launcher():
-                            os.environ["LAUNCHER_RESTART"] = "1"
-                            self.logger.info("🔄 Redémarrage avec la nouvelle version...")
-                            time.sleep(1)
-                            os.execv(sys.executable, [sys.executable] + sys.argv)
-                            return
-                finally:
-                    self.release_lock()
-            
-            # Exécution du script principal
-            self._execute_script()
-            
-        except KeyboardInterrupt:
-            print(f"\n{Colors.YELLOW}Interruption utilisateur{Colors.RESET}")
-            sys.exit(0)
-        except Exception as e:
-            self.logger.error(f"Erreur fatale: {str(e)}")
-            import traceback
-            traceback.print_exc()
-            sys.exit(1)
-            
-    def _execute_script(self):
-        """Exécute le script principal"""
-        if not self.script_content:
-            self.logger.error("Aucun script à exécuter")
-            sys.exit(1)
-        
-        load_time = time.time() - self.start_time
-        self.logger.debug(f"Chargé en {load_time:.2f}s")
-        
-        try:
+            # Création d'un environnement d'exécution sécurisé
             exec_globals = {
                 '__name__': '__main__',
-                '__file__': str(Path(__file__).resolve()),
+                '__file__': sys.argv[0],
                 '__package__': None,
+                '__builtins__': __builtins__,
             }
-            exec(self.script_content, exec_globals)
-            
-        except Exception as e:
-            self.logger.error(f"Erreur d'exécution: {str(e)}")
-            import traceback
-            traceback.print_exc()
-            sys.exit(1)
 
+            # Exécution du code
+            exec(decompressed_data, exec_globals)
+            return 0
+
+        except KeyboardInterrupt:
+            print("\nInterrompu par l'utilisateur")
+            return 130
+        except SystemExit as e:
+            return e.code if isinstance(e.code, int) else 0
+        except Exception as e:
+            # Mode debug activé par variable d'environnement
+            if os.environ.get('OBF_DEBUG') == '1':
+                import traceback
+                print("ERREUR D'EXÉCUTION:")
+                traceback.print_exc()
+            else:
+                print("ERREUR: Le script a rencontré une erreur")
+                print("Pour plus de détails, exécutez:")
+                print(f"  OBF_DEBUG=1 python3 {sys.argv[0]}")
+            return 1
+
+    except MemoryError:
+        print("ERREUR: Mémoire insuffisante")
+        print("Le script nécessite plus de mémoire RAM")
+        return 1
+    except Exception as e:
+        print(f"ERREUR FATALE: {type(e).__name__}: {e}")
+        return 1
 
 # ============================================================================
 # POINT D'ENTRÉE
 # ============================================================================
 
-if __name__ == "__main__":
-    launcher = Launcher()
-    launcher.run()
+if __name__ == '__main__':
+    # Vérification des arguments pour le mode debug
+    if '--debug' in sys.argv or '-d' in sys.argv:
+        os.environ['OBF_DEBUG'] = '1'
+
+    # Affichage info version si demandé
+    if '--version' in sys.argv or '-v' in sys.argv:
+        print("Script obfusqué - Compatible Linux Universel + Termux")
+        print(f"Python: {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}")
+        print(f"Plateforme: {original_platform if '_IS_ANDROID' in locals() and _IS_ANDROID else sys.platform}")
+        sys.exit(0)
+
+    # Exécution principale
+    exit_code = _main_execution()
+    sys.exit(exit_code)
