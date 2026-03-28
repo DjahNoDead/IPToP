@@ -352,7 +352,7 @@ class PackageManager:
 
 
 # ============================================================================
-# GESTIONNAIRE DE MISE À JOUR
+# GESTIONNAIRE DE MISE À JOUR (CORRIGÉ)
 # ============================================================================
 
 class UpdateManager:
@@ -363,27 +363,8 @@ class UpdateManager:
         self.logger = logger
         self.crypto = Crypto(config.SECRET_KEY)
     
-    def should_check_updates(self) -> bool:
-        """Vérifie si on doit vérifier les mises à jour (1x par heure max)"""
-        if not self.config.LAST_CHECK_FILE.exists():
-            return True
-        
-        try:
-            with open(self.config.LAST_CHECK_FILE, "r") as f:
-                last_check = float(f.read().strip())
-            return (time.time() - last_check) > 3600  # 1 heure
-        except:
-            return True
-    
-    def update_last_check_time(self):
-        """Met à jour l'heure du dernier check"""
-        try:
-            with open(self.config.LAST_CHECK_FILE, "w") as f:
-                f.write(str(time.time()))
-        except:
-            pass
-    
-    def get_remote_version(self, url: str) -> Optional[str]:
+    def get_remote_version(self, url: str, force: bool = False) -> Optional[str]:
+        """Récupère la version distante"""
         try:
             req = urllib.request.Request(
                 url,
@@ -408,11 +389,8 @@ class UpdateManager:
             return None
     
     def check_launcher_update(self, current_version: str) -> Tuple[bool, Optional[str]]:
-        if not self.should_check_updates():
-            return False, None
-        
+        """Vérifie la mise à jour du launcher (toujours en ligne)"""
         remote_version = self.get_remote_version(self.config.VERSION_LAUNCHER_URL)
-        self.update_last_check_time()
         
         if not remote_version:
             return False, None
@@ -423,19 +401,51 @@ class UpdateManager:
         self.logger.info(f"Nouvelle version du launcher disponible: v{remote_version}")
         return True, remote_version
     
-    def check_script_update(self, current_version: Optional[str]) -> Tuple[bool, Optional[str]]:
-        if not self.should_check_updates():
-            return False, None
-        
+    def check_script_update(self, current_version: Optional[str]) -> Tuple[bool, Optional[str], Optional[str]]:
+        """
+        Vérifie la mise à jour du script
+        Retourne: (has_update, new_version, script_content)
+        """
+        # Récupérer la version distante
         remote_version = self.get_remote_version(self.config.VERSION_SCRIPT_URL)
         
         if not remote_version:
-            return False, None
+            return False, None, None
         
+        # Si même version, pas de mise à jour
         if current_version and remote_version == current_version:
-            return False, None
+            return False, None, None
         
-        return True, remote_version
+        # Nouvelle version disponible, télécharger directement
+        self.logger.info(f"Nouvelle version du script disponible: v{remote_version}")
+        
+        script_content = self.download_file(self.config.SCRIPT_URL)
+        if not script_content:
+            self.logger.error("Échec du téléchargement du script")
+            return False, None, None
+        
+        return True, remote_version, script_content
+    
+    def update_script(self, script_content: str, version: str) -> bool:
+        """Met à jour le script en cache"""
+        try:
+            # Chiffrer et sauvegarder
+            encrypted = self.crypto.encrypt(script_content)
+            with open(self.config.CACHE_FILE, "w", encoding="utf-8") as f:
+                f.write(encrypted)
+            self.config.CACHE_FILE.chmod(0o600)
+            
+            # Sauvegarder la version
+            with open(self.config.VERSION_FILE, "w", encoding="utf-8") as f:
+                f.write(version)
+            self.config.VERSION_FILE.chmod(0o600)
+            
+            self.logger.success(f"Script mis à jour vers v{version}")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Échec sauvegarde: {str(e)}")
+            return False
     
     def update_launcher(self) -> bool:
         self.logger.info("Téléchargement de la nouvelle version...")
@@ -469,34 +479,6 @@ class UpdateManager:
                 backup_file.replace(current_file)
             
             return False
-    
-    def update_script(self) -> Optional[str]:
-        self.logger.info("Téléchargement du script...")
-        script_content = self.download_file(self.config.SCRIPT_URL)
-        
-        if not script_content:
-            self.logger.error("Échec du téléchargement")
-            return None
-        
-        try:
-            encrypted = self.crypto.encrypt(script_content)
-            with open(self.config.CACHE_FILE, "w", encoding="utf-8") as f:
-                f.write(encrypted)
-            self.config.CACHE_FILE.chmod(0o600)
-            
-            remote_version = self.get_remote_version(self.config.VERSION_SCRIPT_URL)
-            if remote_version:
-                with open(self.config.VERSION_FILE, "w", encoding="utf-8") as f:
-                    f.write(remote_version)
-                self.config.VERSION_FILE.chmod(0o600)
-            
-            self.logger.success("Script mis à jour avec succès")
-            return script_content
-            
-        except Exception as e:
-            self.logger.error(f"Échec sauvegarde: {str(e)}")
-            return None
-
 
 # ============================================================================
 # LAUNCHER PRINCIPAL
@@ -681,13 +663,9 @@ class Launcher:
             if online and not is_restart and not install_already_done:
                 print(f"{Colors.CYAN}[INFO] Vérification et installation des dépendances...{Colors.RESET}")
                 
-                # Installer les modules requis
                 deps_ok = self.package_manager.install_all(self.config.REQUIRED_MODULES)
-                
-                # Installer les modules optionnels (ne bloque pas)
                 self.package_manager.install_optional(self.config.OPTIONAL_MODULES)
                 
-                # Marquer l'installation comme faite
                 try:
                     self.config.INSTALL_DONE_FILE.touch()
                     self.logger.debug("Flag d'installation créé")
@@ -700,20 +678,26 @@ class Launcher:
             
             # Chargement de la version locale du script
             self.script_version = self.load_script_version()
+            self.logger.debug(f"Version locale du script: {self.script_version or 'aucune'}")
             
-            # Mise à jour du script (seulement si nouvelle version)
+            # Mise à jour du script (TOUJOURS vérifier en ligne)
             if online:
-                has_update, new_version = self.update_manager.check_script_update(self.script_version)
+                has_update, new_version, new_script = self.update_manager.check_script_update(self.script_version)
                 
-                if has_update:
-                    self.logger.info(f"Nouvelle version du script: v{new_version}")
-                    new_script = self.update_manager.update_script()
-                    if new_script:
+                if has_update and new_script:
+                    # Sauvegarder la nouvelle version
+                    if self.update_manager.update_script(new_script, new_version):
                         self.script_content = new_script
                         self.script_version = new_version
-                        self.logger.success("Script mis à jour")
+                        self.logger.success(f"Script mis à jour vers v{new_version}")
+                    else:
+                        self.logger.error("Échec de la mise à jour, utilisation de l'ancienne version")
+                        self.script_content = self.load_script_from_cache()
+                else:
+                    # Pas de mise à jour, charger depuis le cache
+                    self.script_content = self.load_script_from_cache()
             
-            # Chargement du script depuis le cache si pas encore chargé
+            # Si toujours pas de script (première exécution ou cache vide)
             if not self.script_content:
                 if not self.ensure_script_available():
                     self.logger.error("Impossible d'obtenir le script")
@@ -746,7 +730,7 @@ class Launcher:
             import traceback
             traceback.print_exc()
             sys.exit(1)
-    
+        
     def _execute_script(self):
         """Exécute le script principal"""
         if not self.script_content:
